@@ -249,7 +249,15 @@ const LINE_TOTAL_TOLERANCE_CENTS = 1
  * - rows sharing a `transactionId` agree on transaction-level fields (date,
  *   warehouse, type, total), so a per-transaction total is unambiguous.
  */
-export function checkIntegrity(data: AnalyticsExportV1): ImportIssue[] {
+export type IntegrityOptions = {
+  /**
+   * Sync batches are partial: a `sourcePurchaseId` may name a receipt stored by
+   * an earlier batch, so the server resolves it against the database instead.
+   */
+  purchaseReferencesResolvedElsewhere?: boolean
+}
+
+export function checkIntegrity(data: AnalyticsExportV1, options: IntegrityOptions = {}): ImportIssue[] {
   const issues: ImportIssue[] = []
 
   const collections = ['receipts', 'items', 'returns', 'priceAdjustments'] as const
@@ -292,7 +300,11 @@ export function checkIntegrity(data: AnalyticsExportV1): ImportIssue[] {
     const firstIndexByKey = new Map<string, number>()
     data[name].forEach((record, index) => {
       const at = `${name}[${index}]`
-      if (record.sourcePurchaseId !== null && !receiptIds.has(record.sourcePurchaseId)) {
+      if (
+        record.sourcePurchaseId !== null &&
+        !options.purchaseReferencesResolvedElsewhere &&
+        !receiptIds.has(record.sourcePurchaseId)
+      ) {
         issues.push({ path: `${at}.sourcePurchaseId`, message: 'References a receipt that is not in this file.' })
       }
       if (receiptIds.has(record.transactionId)) {

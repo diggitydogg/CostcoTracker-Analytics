@@ -1,6 +1,8 @@
 # Architecture
 
-Static, client-only single-page app (Vite + React + TypeScript + Tailwind). No server, no auth, no telemetry. The production build ships a Content-Security-Policy with `connect-src 'none'`, so the browser itself blocks any network request from the page.
+Vite + React + TypeScript + Tailwind single-page app, plus a small API (`server/`) that runs as Cloudflare Pages Functions over D1. The cloud design (D1 schema, auth, sync protocol, free-tier budget) is in **`docs/CLOUD_ARCHITECTURE.md`**. No telemetry.
+
+The UI does not call the API yet. Until it does, the production build keeps a Content-Security-Policy with `connect-src 'none'`, so the browser itself blocks any network request from the page. It becomes `connect-src 'self'` when the UI starts using the same-origin API.
 
 ## Layers
 
@@ -11,14 +13,19 @@ src/
     import/            Importer: text/value -> validated, normalized data or a structured error
     dataset.ts         LoadedDataset = validated export + app-generated import metadata
     summary.ts         Record counts shown after import (not analytics)
-  persistence/       Optional IndexedDB storage (one dataset, deletable as a whole DB)
+    sync/              Sync protocol schemas, canonical hashing, reconciliation planning (shared with server)
+  persistence/       IndexedDB storage: today the local dataset, later the browser cache of D1
   app/               React hook orchestrating import / remember / forget
   ui/                Presentational components; no calculations
   fixtures/          Synthetic data only
   test/              Test setup and fixture helpers
+server/              Portable API handler (auth, sync, export) over a 4-method SQL interface
+  adapters/            d1.ts (Cloudflare) and nodeSqlite.ts (tests / self-hosting)
+functions/api/       Cloudflare Pages Function entry (the only Cloudflare-specific file)
+migrations/          D1 / SQLite schema
 ```
 
-Dependencies point inward: `ui -> app -> persistence -> domain`. Later analytics belong in `src/domain/` as pure, tested functions.
+Dependencies point inward: `ui -> app -> persistence -> domain` and `server -> domain`. Later analytics belong in `src/domain/` as pure, tested functions.
 
 ## Import pipeline (`src/domain/import/importExport.ts`)
 

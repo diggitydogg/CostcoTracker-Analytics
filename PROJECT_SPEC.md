@@ -6,7 +6,7 @@ CostcoTracker Analytics is a separate web application that analyzes receipt and 
 
 The iOS app handles collection/sync/storage. The web app handles exploration, visualization, categorization, and long-term analytics.
 
-Version 1 is local-first and should not require a backend.
+Version 1 is privacy-first and free-first: the web app and API run on Cloudflare's free plan with D1 as the durable analytics store (see `docs/CLOUD_ARCHITECTURE.md`). JSON import remains the bootstrap and disaster-recovery path.
 
 ## Primary user workflow
 

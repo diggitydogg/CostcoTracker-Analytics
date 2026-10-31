@@ -11,7 +11,13 @@
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev:cloud": "npm run build && wrangler pages dev",
+    "db:migrate:local": "wrangler d1 migrations apply costcotracker-analytics --local",
+    "db:migrate:remote": "wrangler d1 migrations apply costcotracker-analytics --remote",
+    "db:backup:remote": "wrangler d1 export costcotracker-analytics --remote --output",
+    "auth:generate-key": "node scripts/generate-access-key.mjs",
+    "deploy": "npm run build && wrangler pages deploy"
   },
   "dependencies": {
     "react": "^19.3.1",
@@ -39,7 +45,8 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "wrangler": "^4.156.0"
   },
   "engines": {
     "node": ">=20.19"

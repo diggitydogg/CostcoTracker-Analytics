@@ -2,16 +2,17 @@
 
 ## Project
 
-CostcoTracker Analytics is the local-first web analytics companion to the iOS app CostcoTracker.
+CostcoTracker Analytics is the privacy-first web analytics companion to the iOS app CostcoTracker.
 
-The iOS app is the source of truth for collected receipt/order data. This web app analyzes an exported, versioned JSON dataset. It must not scrape Costco, require Costco credentials, or require a remote database for version 1.
+The iOS app is the source of truth for collected receipt/order data. This web app analyzes a versioned dataset, synced from the app into the owner's own Cloudflare D1 database or imported as a JSON export. It must not scrape Costco, and it must never receive or store Costco credentials. The complete personal-use app must run at $0/month on free tiers (`docs/CLOUD_ARCHITECTURE.md`).
 
 ## Core principles
 
-1. **Local-first privacy**
-   - Do not upload raw receipt, item, return, warehouse, order, or adjustment data to a remote service by default.
-   - Imported analytics data stays in browser memory and/or IndexedDB.
-   - No tracking/analytics SDKs in version 1.
+1. **Owner-controlled privacy**
+   - Analytics data may be stored only in the owner's own deployment (Cloudflare D1) and in browser memory/IndexedDB. Never send it to any other service.
+   - Never store Costco cookies/passwords/tokens, receipt barcodes, or order numbers in the cloud.
+   - No tracking/analytics SDKs.
+   - No feature may require a paid tier; anything that could must be optional and documented.
 
 2. **Traceability**
    - Every aggregate number must be drillable to the underlying rows used to compute it.
@@ -46,11 +47,12 @@ Unless there is a strong technical reason to change it:
 - Tailwind CSS
 - ECharts or Recharts
 - Zod
+- Cloudflare Pages + Pages Functions + D1 (free plan), behind the portable `server/` handler
 - IndexedDB via a small well-maintained wrapper or a minimal local abstraction
 - Vitest
 - React Testing Library where useful
 
-Do not add a server framework merely for convenience.
+Do not add a server framework merely for convenience; keep Cloudflare-specific code confined to `functions/` and `server/adapters/d1.ts`.
 
 ## Security / privacy
 
@@ -62,6 +64,7 @@ Never commit:
 - Costco account credentials
 - user-specific personal purchase datasets
 - `.env` files with secrets
+- `.dev.vars`, owner access keys, device tokens, the `idKey`, or D1 SQL dumps
 
 Use synthetic fixtures only.
 

@@ -50,7 +50,7 @@ const nonEmptyText = (what: string) =>
     .string({ error: `Expected text for ${what}.` })
     .refine((v) => v.trim().length > 0, { error: `${what} must not be empty.` })
 
-const nonEmptyId = nonEmptyText('identifier')
+export const nonEmptyId = nonEmptyText('identifier')
 
 /** Text that may be unknown. Unknown is `null`; an empty string is rejected, not coerced. */
 const nullableText = (what: string) =>
@@ -101,7 +101,7 @@ const ALLOWED_IDENTIFIER_KINDS: Record<'warehouse' | 'online' | 'synthetic', rea
   synthetic: ['synthetic'],
 }
 
-const receiptShapeV1 = {
+export const receiptShapeV1 = {
   id: nonEmptyId,
   sourceType: z.enum(['warehouse', 'online', 'synthetic'], {
     error: 'Expected sourceType "warehouse", "online", or "synthetic".',
@@ -114,8 +114,13 @@ const receiptShapeV1 = {
   warehouse: nullableText('warehouse'),
 }
 
+/** True when `identifierKind` is one the iOS app can produce for `sourceType`. */
+export function isAllowedIdentifierKind(sourceType: 'warehouse' | 'online' | 'synthetic', identifierKind: string): boolean {
+  return ALLOWED_IDENTIFIER_KINDS[sourceType].includes(identifierKind)
+}
+
 export const receiptSchemaV1 = z.object(receiptShapeV1).superRefine((receipt, ctx) => {
-  if (!ALLOWED_IDENTIFIER_KINDS[receipt.sourceType].includes(receipt.identifierKind)) {
+  if (!isAllowedIdentifierKind(receipt.sourceType, receipt.identifierKind)) {
     ctx.addIssue({
       code: 'custom',
       path: ['identifierKind'],
@@ -124,7 +129,7 @@ export const receiptSchemaV1 = z.object(receiptShapeV1).superRefine((receipt, ct
   }
 })
 
-const itemShapeV1 = {
+export const itemShapeV1 = {
   id: nonEmptyId,
   purchaseId: nonEmptyId,
   itemNumber: nonEmptyText('itemNumber'),
@@ -144,7 +149,7 @@ const sourcePurchaseId = nonEmptyId
   .optional()
   .transform((v) => v ?? null)
 
-const returnShapeV1 = {
+export const returnShapeV1 = {
   id: nonEmptyId,
   /** Opaque ID of the return transaction; never equal to any receipt ID. */
   transactionId: nonEmptyId,
@@ -164,7 +169,7 @@ const returnShapeV1 = {
 
 export const returnSchemaV1 = z.object(returnShapeV1)
 
-const priceAdjustmentShapeV1 = {
+export const priceAdjustmentShapeV1 = {
   id: nonEmptyId,
   /** Opaque ID of the adjustment transaction; never equal to any receipt ID. */
   transactionId: nonEmptyId,

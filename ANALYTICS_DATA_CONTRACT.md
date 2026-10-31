@@ -173,26 +173,36 @@ The importer applies the same uniqueness and per-transaction consistency checks 
 
 ## Export IDs
 
-IDs give provenance *within an export*. They must never reveal a receipt barcode, a `WHSE_` key or an online order number.
+IDs are deterministic. Re-exporting, reinstalling the app or syncing from a second device all produce the **same** ID for the same source row, which is what lets cloud sync reconcile records (`docs/CLOUD_ARCHITECTURE.md` §3). IDs must never reveal a receipt barcode, a `WHSE_` key or an online order number.
 
-| Record | Export ID | Stability |
-|---|---|---|
-| receipt | `"r_" + token("receipt", receipts.barcode)` | Stable across exports from the same install. |
-| return / adjustment `transactionId` | `"t_" + token("transaction", transaction_barcode)` | Stable across exports. Because of domain separation it never equals a receipt ID, so it can't be joined to a purchase. |
-| item | `"i_" + items.id` | Stable within one export. It changes when that receipt is re-synced, because iOS deletes and re-inserts the receipt's items. |
-| return | `"ret_" + item_returns.id` | Stable. iOS updates the row in place (`ON CONFLICT … DO UPDATE`), so the row ID is kept. |
-| adjustment | `"adj_" + price_adjustments.id` | Stable, for the same reason as returns. |
+| Record | Export ID |
+|---|---|
+| receipt | `"r_" + token("receipt", receipts.barcode)` |
+| item | `"i_" + token("item", receipt_barcode ⟂ item_number ⟂ occurrence)` |
+| return | `"ret_" + token("return", transaction_barcode ⟂ item_number)` |
+| adjustment | `"adj_" + token("adjustment", transaction_barcode ⟂ item_number)` |
+| return / adjustment `transactionId` | `"t_" + token("transaction", transaction_barcode)` |
+
+- `⟂` is a NUL (`\u0000`) separator.
+- `occurrence` is the 0-based index of the row among rows with the same `item_number` in that receipt, ordered by SQLite rowid. It is always 0 for warehouse receipts, which hold one row per item number. Online orders may repeat an item number.
+- Returns and adjustments use the SQLite natural key `UNIQUE(transaction_barcode, item_number)`.
 
 `token(domain, value)` is defined as:
 
 ```
-base64url( HMAC-SHA256( exportKey, domain + "\u0000" + value ) )[0..22]
+base64url( HMAC-SHA256( idKey, domain + "\u0000" + value ) )[0..22]
 ```
 
-- `exportKey` is 32 random bytes generated once per install. It is stored only on the device (for example in the Keychain) and is **never exported**.
+**The ID key**
+- `idKey` is 32 random bytes.
+- **With cloud sync,** the server generates it once per instance and gives it to each device at enrollment (`POST /api/device/enroll`, `GET /api/device/config`). The iOS app keeps it in the Keychain.
+- **Without cloud sync** (JSON export only), the device generates its own key.
+- The key is **never** part of an Export V1 file. It lives only in the cloud database and on enrolled devices, and the cloud SQL dump (an operator backup) contains it.
+
+**Properties**
 - Without the key, a token can't be reversed or brute-forced from the structured, fairly low-entropy barcode.
-- The `domain` prefix keeps receipt IDs and transaction IDs in separate namespaces. That stops an analytics join from treating "same barcode" as a return-to-purchase relationship.
-- The importer treats every ID as an opaque string. It only checks that IDs are unique and that references resolve, and it rejects a `transactionId` equal to any receipt ID.
+- The `domain` prefix keeps the namespaces separate. That stops an analytics join from treating "same barcode" as a return-to-purchase relationship.
+- The importer and the sync API treat every ID as an opaque string. They only check that IDs are unique and that references resolve, and they reject a `transactionId` equal to any receipt ID.
 
 ## Privacy exclusions
 
@@ -201,7 +211,7 @@ Never include:
 - online order numbers or order header IDs. They are only present as `receipts.barcode` for online rows.
 - `online_sync_metadata` and `online_order_sync_state`
 - saved returns and return photos
-- the export key
+- the ID key (`idKey`)
 - Costco login credentials, cookies, bearer tokens and session storage
 - payment card data, the full account profile, unrelated app preferences, SideStore data and device identifiers
 
@@ -219,7 +229,7 @@ These come from how iOS currently stores data. V1 represents them honestly and d
    - Only a net unit price is stored.
    - Instant-savings discounts are folded into it and are not available separately.
    - Gross (pre-discount) spend can't be exported.
-5. **Item IDs are not stable across re-syncs** of the same receipt (see Export IDs).
+5. **Item rows are rewritten on re-sync.** iOS deletes and re-inserts a receipt's items. Export IDs no longer use the SQLite rowid, so they stay stable (see Export IDs).
 6. **Transaction totals are per transaction.** For returns and adjustments, `transaction_total` covers the whole transaction, including tax and other lines. It is not a per-item refund amount.
 7. **No currency column.** The exporter asserts `USD`.
 8. **No return-to-purchase or adjustment-to-purchase link exists.** `sourcePurchaseId` is always `null` from current iOS.

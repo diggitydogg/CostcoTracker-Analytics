@@ -1,6 +1,6 @@
 # CostcoTracker Analytics
 
-A local-first analytics companion for CostcoTracker.
+A privacy-first, free-to-run analytics companion for CostcoTracker.
 
 CostcoTracker Analytics turns exported CostcoTracker purchase history into useful, explorable spending and product analytics without requiring a cloud database or user account.
 
@@ -28,15 +28,13 @@ CostcoTracker Analytics turns exported CostcoTracker purchase history into usefu
 
 ## Privacy model
 
-Version 1 is local-first:
+- Single owner. No public accounts.
+- Data is synced from CostcoTracker iOS into the owner's own Cloudflare D1 database, on the free plan.
+- Costco credentials never leave the phone. Barcodes and order numbers are never uploaded.
+- No trackers or third-party data sharing.
+- JSON export and import provide backup and portability.
 
-- No account required
-- No remote database required
-- No receipt data uploaded to a server by default
-- Imported data may be stored in IndexedDB on the current browser/device
-- A clear "Forget imported data" action must remove locally persisted data
-
-See `PRIVACY.md`.
+See `PRIVACY.md` and `docs/CLOUD_ARCHITECTURE.md`.
 
 ## Development
 
@@ -57,7 +55,15 @@ npm run lint       # ESLint
 npm run build      # type-check and production build
 ```
 
-See `ARCHITECTURE.md` for code layout and the import/persistence design.
+Cloud API (local, no Cloudflare account needed):
+
+```bash
+npm run auth:generate-key   # put the printed digest in .dev.vars (see .dev.vars.example)
+npm run db:migrate:local    # create the local D1 database
+npm run dev:cloud           # SPA + /api/* on http://localhost:8788
+```
+
+See `ARCHITECTURE.md` for code layout and `docs/CLOUD_ARCHITECTURE.md` for the cloud design.
 
 The `cloud-tasks/` directory contains bounded tasks intended to run as separate Claude Code cloud sessions / pull requests.
 
