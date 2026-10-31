@@ -1,0 +1,13 @@
+# Cloudflare Pages project: static SPA from dist/ + Pages Functions under /api/*.
+# Everything here works on the Workers Free plan. See docs/CLOUD_ARCHITECTURE.md.
+name = "costcotracker-analytics"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "costcotracker-analytics"
+# Replace with the ID printed by `wrangler d1 create costcotracker-analytics`.
+# Local development (`npm run dev:cloud`) does not need a real ID.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
