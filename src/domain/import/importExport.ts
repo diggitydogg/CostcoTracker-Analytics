@@ -187,8 +187,8 @@ export function importExportValue(value: unknown): ImportResult {
   if (integrityIssues.length > 0) {
     return fail(
       'invalid-data',
-      `This export has ${integrityIssues.length} inconsistent ${integrityIssues.length === 1 ? 'reference' : 'references'}.`,
-      'Nothing was imported. Records must have unique IDs and may only reference receipts that are present in the file. ' +
+      `This export has ${integrityIssues.length} ${integrityIssues.length === 1 ? 'inconsistency' : 'inconsistencies'} between records.`,
+      'Nothing was imported. Records must have unique IDs, may only reference receipts that are present in the file, and rows from the same transaction must agree with each other. ' +
         RE_EXPORT_HINT,
       integrityIssues,
     )
@@ -232,12 +232,22 @@ function isMissing(raw: unknown, path: readonly PropertyKey[]): boolean {
   return !Object.hasOwn(parent, path[path.length - 1] as PropertyKey)
 }
 
+/** Tolerance when checking a line total against unit price × quantity. */
+const LINE_TOTAL_TOLERANCE_CENTS = 1
+
 /**
  * Cross-record checks that a schema cannot express:
  * - IDs are unique within each collection,
  * - every item belongs to a receipt in the file,
+ * - an item's whole-cent unit price agrees with its line total,
  * - an explicit `sourcePurchaseId` on a return/adjustment points at a receipt
- *   in the file. (Absent links are fine and are never inferred.)
+ *   in the file (absent links are fine and are never inferred),
+ * - return/adjustment `transactionId`s never coincide with receipt IDs, so a
+ *   transaction can never be silently joined to a purchase,
+ * - at most one return (and one adjustment) per transaction and item number,
+ *   mirroring the iOS `UNIQUE(transaction_barcode, item_number)` constraint,
+ * - rows sharing a `transactionId` agree on transaction-level fields (date,
+ *   warehouse, type, total), so a per-transaction total is unambiguous.
  */
 export function checkIntegrity(data: AnalyticsExportV1): ImportIssue[] {
   const issues: ImportIssue[] = []
@@ -264,13 +274,65 @@ export function checkIntegrity(data: AnalyticsExportV1): ImportIssue[] {
         message: 'References a receipt that is not in this file.',
       })
     }
+    if (
+      item.unitPriceCents !== null &&
+      Math.abs(item.unitPriceCents * item.quantity - item.lineTotalCents) > LINE_TOTAL_TOLERANCE_CENTS
+    ) {
+      issues.push({
+        path: `items[${index}].lineTotalCents`,
+        message: 'Does not match unitPriceCents × quantity.',
+      })
+    }
   })
+
+  type TransactionFields = { path: string; date: string | null; warehouse: string | null; type: string | null; total: number | null }
+  const transactions = new Map<string, TransactionFields>()
+
   for (const name of ['returns', 'priceAdjustments'] as const) {
+    const firstIndexByKey = new Map<string, number>()
     data[name].forEach((record, index) => {
+      const at = `${name}[${index}]`
       if (record.sourcePurchaseId !== null && !receiptIds.has(record.sourcePurchaseId)) {
+        issues.push({ path: `${at}.sourcePurchaseId`, message: 'References a receipt that is not in this file.' })
+      }
+      if (receiptIds.has(record.transactionId)) {
         issues.push({
-          path: `${name}[${index}].sourcePurchaseId`,
-          message: 'References a receipt that is not in this file.',
+          path: `${at}.transactionId`,
+          message: 'Must not equal a receipt ID; transaction IDs are a separate namespace.',
+        })
+      }
+
+      // JSON-encoded tuple: unambiguous for any characters in either part.
+      const key = JSON.stringify([record.transactionId, record.itemNumber])
+      const first = firstIndexByKey.get(key)
+      if (first === undefined) firstIndexByKey.set(key, index)
+      else
+        issues.push({
+          path: at,
+          message: `Same transactionId and itemNumber as ${name}[${first}]; each item appears once per transaction.`,
+        })
+
+      const fields: TransactionFields = {
+        path: at,
+        date: 'returnDate' in record ? record.returnDate : record.adjustmentDate,
+        warehouse: record.warehouse,
+        type: record.transactionType,
+        total: record.transactionTotalCents,
+      }
+      const seen = transactions.get(record.transactionId)
+      if (!seen) {
+        transactions.set(record.transactionId, fields)
+        return
+      }
+      const conflicts: string[] = []
+      if (seen.date !== fields.date) conflicts.push('date')
+      if (seen.warehouse !== fields.warehouse) conflicts.push('warehouse')
+      if (seen.type !== fields.type) conflicts.push('transactionType')
+      if (seen.total !== fields.total) conflicts.push('transactionTotalCents')
+      if (conflicts.length > 0) {
+        issues.push({
+          path: `${at}.transactionId`,
+          message: `Shares a transaction with ${seen.path} but disagrees on ${conflicts.join(', ')}.`,
         })
       }
     })

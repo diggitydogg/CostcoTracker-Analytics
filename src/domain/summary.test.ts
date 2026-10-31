@@ -17,10 +17,10 @@ describe('summarizeImport', () => {
     const summary = summarizeImport(load())
     expect(summary).toEqual({
       receiptCount: 4,
-      receiptCountBySource: { warehouse: 0, online: 0, synthetic: 4 },
+      receiptCountBySource: { warehouse: 2, online: 1, synthetic: 1 },
       itemCount: 7,
-      returnCount: 2,
-      priceAdjustmentCount: 1,
+      returnCount: 3,
+      priceAdjustmentCount: 2,
       purchaseDateRange: { first: '2026-01-04', last: '2026-02-09' },
       receiptsWithoutDate: 1,
     })
@@ -29,12 +29,11 @@ describe('summarizeImport', () => {
   it('counts receipts by source type', () => {
     const summary = summarizeImport(
       load((d) => {
-        d.receipts[0]!.sourceType = 'warehouse'
-        d.receipts[1]!.sourceType = 'warehouse'
-        d.receipts[2]!.sourceType = 'online'
+        d.receipts[1]!.sourceType = 'online'
+        d.receipts[1]!.identifierKind = 'onlineOrderKey'
       }),
     )
-    expect(summary.receiptCountBySource).toEqual({ warehouse: 2, online: 1, synthetic: 1 })
+    expect(summary.receiptCountBySource).toEqual({ warehouse: 1, online: 2, synthetic: 1 })
   })
 
   it('reports no date range rather than inventing one when no dates exist', () => {

@@ -25,13 +25,25 @@ Dependencies point inward: `ui -> app -> persistence -> domain`. Later analytics
 1. Size guard (50 MB).
 2. `JSON.parse`. The engine's error is discarded because it can quote file contents.
 3. Envelope sniffing: `format` must be `costcotracker-analytics`, and `formatVersion` must be a supported integer. Each failure gets its own message: wrong file, missing version, newer version, or older version.
-4. Zod V1 schema. Money must be safe-integer cents. Dates must be real `YYYY-MM-DD` calendar dates, and `exportedAt` must be a zoned ISO timestamp. Quantities must be finite and non-negative but need not be integers. Strings are never coerced to numbers.
-5. Integrity checks: unique IDs per collection, every `items[].purchaseId` must exist, and an explicit `sourcePurchaseId` must exist. Missing links stay `null` and are never inferred.
+4. Zod V1 schema (`src/domain/export/v1.ts`), aligned field-for-field with the iOS SQLite tables (see `ANALYTICS_DATA_CONTRACT.md`):
+   - Money must be safe-integer cents. Magnitude amounts must be `>= 0`; transaction totals are signed.
+   - Dates must be real `YYYY-MM-DD` calendar dates, and `exportedAt` must be a zoned ISO timestamp.
+   - Quantities must be finite and `> 0`, but need not be integers.
+   - Every field is required. Unknown values are `null`, never `""`. Only `sourcePurchaseId` may be omitted.
+   - `sourceType` and `identifierKind` must be a valid combination.
+   - There are no barcode or order-number fields.
+5. Integrity checks:
+   - unique IDs per collection;
+   - every `items[].purchaseId` resolves, and an explicit `sourcePurchaseId` resolves. Missing links stay `null` and are never inferred;
+   - a whole-cent unit price agrees with the line total (±1 cent);
+   - return/adjustment `transactionId`s never equal a receipt ID;
+   - `(transactionId, itemNumber)` is unique, mirroring the iOS `UNIQUE` constraint;
+   - rows that share a transaction agree on date, warehouse, type and total.
 6. Warnings list the *names* of unknown fields. Unknown fields are stripped and their values are never kept.
 
 Errors report a path such as `items[3].unitPriceCents` and a message. They never include the offending value. At most 50 issues are listed, together with the total count.
 
-Normalization only converts absent optional fields to `null`. No value is defaulted, guessed or derived.
+Normalization only converts an omitted `sourcePurchaseId` to `null`. No value is defaulted, guessed or derived.
 
 ## Persistence (`src/persistence/datasetStore.ts`)
 

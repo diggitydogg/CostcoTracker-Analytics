@@ -5,126 +5,163 @@
   "currency": "USD",
   "receipts": [
     {
-      "id": "synthetic-receipt-001",
-      "sourceType": "synthetic",
+      "id": "r_synthetic0001",
+      "sourceType": "warehouse",
+      "identifierKind": "transactionBarcode",
       "purchaseDate": "2026-01-04",
-      "warehouseName": "Synthetic Warehouse North",
-      "warehouseNumber": "SYN-01",
-      "onlineOrderNumber": null
+      "warehouse": "SYNTHETIC NORTH"
     },
     {
-      "id": "synthetic-receipt-002",
-      "sourceType": "synthetic",
+      "id": "r_synthetic0002",
+      "sourceType": "warehouse",
+      "identifierKind": "synthesizedWarehouseKey",
       "purchaseDate": "2026-01-18",
-      "warehouseName": "Synthetic Warehouse South",
-      "warehouseNumber": "SYN-02",
-      "onlineOrderNumber": null
+      "warehouse": "SYNTHETIC SOUTH"
     },
     {
-      "id": "synthetic-receipt-003",
-      "sourceType": "synthetic",
+      "id": "r_synthetic0003",
+      "sourceType": "online",
+      "identifierKind": "onlineOrderKey",
       "purchaseDate": "2026-02-09",
-      "warehouseName": null,
-      "warehouseNumber": null,
-      "onlineOrderNumber": "SYNTHETIC-ORDER-0001"
+      "warehouse": "Online Order (Fulfilling Whse #9001)"
     },
     {
-      "id": "synthetic-receipt-004",
+      "id": "r_synthetic0004",
       "sourceType": "synthetic",
+      "identifierKind": "synthetic",
       "purchaseDate": null,
-      "warehouseName": "Synthetic Warehouse North",
-      "warehouseNumber": "SYN-01"
+      "warehouse": null
     }
   ],
   "items": [
     {
-      "id": "synthetic-item-001",
-      "purchaseId": "synthetic-receipt-001",
-      "itemNumber": "SYN-1001",
+      "id": "i_1",
+      "purchaseId": "r_synthetic0001",
+      "itemNumber": "9000001",
       "description": "SYNTHETIC PAPER TOWELS 12PK",
       "quantity": 1,
-      "unitPriceCents": 2199,
-      "lineTotalCents": 2199
+      "lineTotalCents": 2199,
+      "unitPriceCents": 2199
     },
     {
-      "id": "synthetic-item-002",
-      "purchaseId": "synthetic-receipt-001",
-      "itemNumber": "SYN-1002",
+      "id": "i_2",
+      "purchaseId": "r_synthetic0001",
+      "itemNumber": "9000002",
       "description": "SYNTHETIC BANANAS 3LB",
       "quantity": 2,
-      "unitPriceCents": 149,
-      "lineTotalCents": 298
+      "lineTotalCents": 298,
+      "unitPriceCents": 149
     },
     {
-      "id": "synthetic-item-003",
-      "purchaseId": "synthetic-receipt-002",
-      "itemNumber": "SYN-1001",
+      "id": "i_3",
+      "purchaseId": "r_synthetic0002",
+      "itemNumber": "9000001",
       "description": "SYNTHETIC PAPER TOWELS 12PK",
       "quantity": 1,
-      "unitPriceCents": 2299,
-      "lineTotalCents": 2299
+      "lineTotalCents": 2299,
+      "unitPriceCents": 2299
     },
     {
-      "id": "synthetic-item-004",
-      "purchaseId": "synthetic-receipt-002",
-      "itemNumber": "SYN-1003",
+      "id": "i_4",
+      "purchaseId": "r_synthetic0002",
+      "itemNumber": "9000003",
       "description": "SYNTHETIC GROUND COFFEE 2.5LB",
       "quantity": 1,
-      "unitPriceCents": 1499,
-      "lineTotalCents": 1499
+      "lineTotalCents": 1499,
+      "unitPriceCents": 1499
     },
     {
-      "id": "synthetic-item-005",
-      "purchaseId": "synthetic-receipt-002",
-      "itemNumber": "SYN-1004",
+      "id": "i_5",
+      "purchaseId": "r_synthetic0002",
+      "itemNumber": "9000004",
       "description": "SYNTHETIC LOOSE PRODUCE (BY WEIGHT)",
       "quantity": 1.37,
-      "unitPriceCents": null,
-      "lineTotalCents": 411
+      "lineTotalCents": 411,
+      "unitPriceCents": null
     },
     {
-      "id": "synthetic-item-006",
-      "purchaseId": "synthetic-receipt-003",
-      "itemNumber": "SYN-2001",
+      "id": "i_6",
+      "purchaseId": "r_synthetic0003",
+      "itemNumber": "9000005",
       "description": "SYNTHETIC DESK LAMP",
       "quantity": 1,
-      "unitPriceCents": 3999,
-      "lineTotalCents": 3999
+      "lineTotalCents": 3999,
+      "unitPriceCents": 3999
     },
     {
-      "id": "synthetic-item-007",
-      "purchaseId": "synthetic-receipt-004",
-      "itemNumber": null,
-      "description": "SYNTHETIC UNNUMBERED ITEM",
-      "quantity": null,
-      "unitPriceCents": null,
-      "lineTotalCents": 899
+      "id": "i_7",
+      "purchaseId": "r_synthetic0004",
+      "itemNumber": "9000006",
+      "description": "",
+      "quantity": 3,
+      "lineTotalCents": 1000,
+      "unitPriceCents": null
     }
   ],
   "returns": [
     {
-      "id": "synthetic-return-001",
-      "itemNumber": "SYN-2001",
+      "id": "ret_1",
+      "transactionId": "t_synthetic0001",
+      "itemNumber": "9000005",
       "returnDate": "2026-02-20",
+      "warehouse": "SYNTHETIC NORTH",
       "quantity": 1,
-      "amountCents": 3999,
-      "sourcePurchaseId": "synthetic-receipt-003"
+      "description": "SYNTHETIC DESK LAMP",
+      "transactionType": "Refund",
+      "merchandiseAmountCents": 3999,
+      "transactionTotalCents": -6650,
+      "sourcePurchaseId": null
     },
     {
-      "id": "synthetic-return-002",
-      "itemNumber": "SYN-1001",
-      "returnDate": "2026-02-01",
+      "id": "ret_2",
+      "transactionId": "t_synthetic0001",
+      "itemNumber": "9000001",
+      "returnDate": "2026-02-20",
+      "warehouse": "SYNTHETIC NORTH",
       "quantity": 1,
-      "amountCents": null
+      "description": "SYNTHETIC PAPER TOWELS 12PK",
+      "transactionType": "Refund",
+      "merchandiseAmountCents": 2199,
+      "transactionTotalCents": -6650
+    },
+    {
+      "id": "ret_3",
+      "transactionId": "t_synthetic0002",
+      "itemNumber": "9000002",
+      "returnDate": "2026-02-01",
+      "warehouse": "SYNTHETIC SOUTH",
+      "quantity": 0.5,
+      "description": null,
+      "transactionType": "Sales",
+      "merchandiseAmountCents": null,
+      "transactionTotalCents": null
     }
   ],
   "priceAdjustments": [
     {
-      "id": "synthetic-adjustment-001",
-      "itemNumber": "SYN-1001",
+      "id": "adj_1",
+      "transactionId": "t_synthetic0003",
+      "itemNumber": "9000001",
       "adjustmentDate": "2026-01-25",
+      "warehouse": "SYNTHETIC SOUTH",
       "amountCents": 300,
+      "adjustedQuantity": 1,
+      "referenceLineNumbers": ["9100001"],
+      "transactionType": "Sales",
+      "transactionTotalCents": -300,
       "sourcePurchaseId": null
+    },
+    {
+      "id": "adj_2",
+      "transactionId": "t_synthetic0004",
+      "itemNumber": "9000003",
+      "adjustmentDate": null,
+      "warehouse": null,
+      "amountCents": 500,
+      "adjustedQuantity": null,
+      "referenceLineNumbers": [],
+      "transactionType": null,
+      "transactionTotalCents": -500
     }
   ]
 }
