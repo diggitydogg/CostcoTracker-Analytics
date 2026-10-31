@@ -1,0 +1,130 @@
+{
+  "format": "costcotracker-analytics",
+  "formatVersion": 1,
+  "exportedAt": "2026-10-31T18:00:00Z",
+  "currency": "USD",
+  "receipts": [
+    {
+      "id": "synthetic-receipt-001",
+      "sourceType": "synthetic",
+      "purchaseDate": "2026-01-04",
+      "warehouseName": "Synthetic Warehouse North",
+      "warehouseNumber": "SYN-01",
+      "onlineOrderNumber": null
+    },
+    {
+      "id": "synthetic-receipt-002",
+      "sourceType": "synthetic",
+      "purchaseDate": "2026-01-18",
+      "warehouseName": "Synthetic Warehouse South",
+      "warehouseNumber": "SYN-02",
+      "onlineOrderNumber": null
+    },
+    {
+      "id": "synthetic-receipt-003",
+      "sourceType": "synthetic",
+      "purchaseDate": "2026-02-09",
+      "warehouseName": null,
+      "warehouseNumber": null,
+      "onlineOrderNumber": "SYNTHETIC-ORDER-0001"
+    },
+    {
+      "id": "synthetic-receipt-004",
+      "sourceType": "synthetic",
+      "purchaseDate": null,
+      "warehouseName": "Synthetic Warehouse North",
+      "warehouseNumber": "SYN-01"
+    }
+  ],
+  "items": [
+    {
+      "id": "synthetic-item-001",
+      "purchaseId": "synthetic-receipt-001",
+      "itemNumber": "SYN-1001",
+      "description": "SYNTHETIC PAPER TOWELS 12PK",
+      "quantity": 1,
+      "unitPriceCents": 2199,
+      "lineTotalCents": 2199
+    },
+    {
+      "id": "synthetic-item-002",
+      "purchaseId": "synthetic-receipt-001",
+      "itemNumber": "SYN-1002",
+      "description": "SYNTHETIC BANANAS 3LB",
+      "quantity": 2,
+      "unitPriceCents": 149,
+      "lineTotalCents": 298
+    },
+    {
+      "id": "synthetic-item-003",
+      "purchaseId": "synthetic-receipt-002",
+      "itemNumber": "SYN-1001",
+      "description": "SYNTHETIC PAPER TOWELS 12PK",
+      "quantity": 1,
+      "unitPriceCents": 2299,
+      "lineTotalCents": 2299
+    },
+    {
+      "id": "synthetic-item-004",
+      "purchaseId": "synthetic-receipt-002",
+      "itemNumber": "SYN-1003",
+      "description": "SYNTHETIC GROUND COFFEE 2.5LB",
+      "quantity": 1,
+      "unitPriceCents": 1499,
+      "lineTotalCents": 1499
+    },
+    {
+      "id": "synthetic-item-005",
+      "purchaseId": "synthetic-receipt-002",
+      "itemNumber": "SYN-1004",
+      "description": "SYNTHETIC LOOSE PRODUCE (BY WEIGHT)",
+      "quantity": 1.37,
+      "unitPriceCents": null,
+      "lineTotalCents": 411
+    },
+    {
+      "id": "synthetic-item-006",
+      "purchaseId": "synthetic-receipt-003",
+      "itemNumber": "SYN-2001",
+      "description": "SYNTHETIC DESK LAMP",
+      "quantity": 1,
+      "unitPriceCents": 3999,
+      "lineTotalCents": 3999
+    },
+    {
+      "id": "synthetic-item-007",
+      "purchaseId": "synthetic-receipt-004",
+      "itemNumber": null,
+      "description": "SYNTHETIC UNNUMBERED ITEM",
+      "quantity": null,
+      "unitPriceCents": null,
+      "lineTotalCents": 899
+    }
+  ],
+  "returns": [
+    {
+      "id": "synthetic-return-001",
+      "itemNumber": "SYN-2001",
+      "returnDate": "2026-02-20",
+      "quantity": 1,
+      "amountCents": 3999,
+      "sourcePurchaseId": "synthetic-receipt-003"
+    },
+    {
+      "id": "synthetic-return-002",
+      "itemNumber": "SYN-1001",
+      "returnDate": "2026-02-01",
+      "quantity": 1,
+      "amountCents": null
+    }
+  ],
+  "priceAdjustments": [
+    {
+      "id": "synthetic-adjustment-001",
+      "itemNumber": "SYN-1001",
+      "adjustmentDate": "2026-01-25",
+      "amountCents": 300,
+      "sourcePurchaseId": null
+    }
+  ]
+}

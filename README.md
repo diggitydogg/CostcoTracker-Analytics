@@ -47,6 +47,18 @@ Read these first:
 - `ANALYTICS_DATA_CONTRACT.md`
 - `PRIVACY.md`
 
+Requires Node.js 20.19+ (22 LTS recommended).
+
+```bash
+npm install
+npm run dev        # local dev server
+npm test           # unit + component tests (Vitest)
+npm run lint       # ESLint
+npm run build      # type-check and production build
+```
+
+See `ARCHITECTURE.md` for code layout and the import/persistence design.
+
 The `cloud-tasks/` directory contains bounded tasks intended to run as separate Claude Code cloud sessions / pull requests.
 
 ## License
