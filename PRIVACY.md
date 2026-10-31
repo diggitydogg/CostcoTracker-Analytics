@@ -31,10 +31,12 @@ The application must not transmit analytics data to:
 
 This holds unless a future feature explicitly asks for permission and clearly describes the exact data being sent.
 
-The browser enforces this with a Content Security Policy:
-- `connect-src 'none'` while the UI is local-only;
-- `connect-src 'self'` once it talks to the owner's API;
-- never any third-party origin.
+The browser enforces this with a Content Security Policy of `connect-src 'self'`. The page can only call the owner's own same-origin API, never a third-party origin. There are no analytics, telemetry, web fonts or CDNs.
+
+The cloud sign-in uses the owner access key:
+- The key is only sent to the owner's own API.
+- It is never written to browser storage.
+- Only an HttpOnly session cookie is kept.
 
 ## Local browser cache
 - Stored in IndexedDB on the current browser/device.

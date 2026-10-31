@@ -1,64 +1,70 @@
-import { useMemo, useState } from 'react'
-import { useDatasetController } from './app/useDatasetController'
-import { createDatasetStore, type DatasetStore } from './persistence/datasetStore'
-import { AppHeader } from './ui/AppHeader'
-import { DatasetShell } from './ui/DatasetShell'
-import { ImportScreen } from './ui/ImportScreen'
+import { useState } from 'react'
+import type { CloudApi } from './cloud/api'
+import { LocalFileApp } from './LocalFileApp'
+import type { DatasetStore } from './persistence/datasetStore'
+import { CloudApp, type CloudAppTestOptions } from './ui/cloud/CloudApp'
 
-export function App({ store }: { store?: DatasetStore }) {
-  const datasetStore = useMemo(() => store ?? createDatasetStore(), [store])
-  const controller = useDatasetController(datasetStore)
-  const [showImport, setShowImport] = useState(false)
+type Mode = 'cloud' | 'file'
 
-  const hasLocalData =
-    controller.dataset !== null ||
-    controller.storage.kind === 'saved' ||
-    controller.storage.kind === 'corrupt'
-
-  const showImportScreen = controller.dataset === null || showImport
+/**
+ * Two ways in: the owner's cloud (canonical data in D1) or a single export
+ * file kept only in this browser.
+ */
+export function App({
+  api,
+  store,
+  cloudTestOptions,
+}: {
+  api?: CloudApi
+  store?: DatasetStore
+  cloudTestOptions?: CloudAppTestOptions
+}) {
+  const [mode, setMode] = useState<Mode>('cloud')
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <AppHeader
-        storage={controller.storage}
-        hasDataset={controller.dataset !== null}
-        hasLocalData={hasLocalData}
-        busy={controller.busy}
-        onForget={async () => {
-          await controller.forget()
-          setShowImport(false)
-        }}
-      />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
-        {controller.notice && (
-          <p role="status" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            {controller.notice}
-          </p>
-        )}
-        {controller.storage.kind === 'corrupt' && controller.dataset === null && (
-          <p role="alert" className="mb-4 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
-            {controller.storage.message} Use “Forget imported data” to remove it, then import a new file.
-          </p>
-        )}
-        {controller.storage.kind === 'checking' ? (
-          <p role="status" className="text-sm text-slate-600">
-            Checking this device for a saved dataset…
-          </p>
-        ) : showImportScreen ? (
-          <ImportScreen
-            controller={controller}
-            onCancel={controller.dataset !== null ? () => setShowImport(false) : undefined}
-            onImported={() => setShowImport(false)}
-          />
-        ) : (
-          controller.dataset && (
-            <DatasetShell dataset={controller.dataset} onImportAnother={() => setShowImport(true)} />
-          )
-        )}
-      </main>
-      <footer className="border-t border-slate-200 px-4 py-4 text-center text-xs text-slate-500">
-        Your data is processed in this browser and is not uploaded anywhere.
-      </footer>
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
+          <h1 className="text-lg font-semibold tracking-tight">CostcoTracker Analytics</h1>
+          <nav aria-label="Data source">
+            <ul className="flex gap-1 text-sm">
+              {(
+                [
+                  ['cloud', 'Cloud'],
+                  ['file', 'File on this device'],
+                ] as const
+              ).map(([id, label]) => (
+                <li key={id}>
+                  <button
+                    type="button"
+                    aria-current={mode === id ? 'page' : undefined}
+                    onClick={() => setMode(id)}
+                    className={`rounded-md px-3 py-1.5 font-medium ${mode === id ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+                  >
+                    {label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </div>
+      </header>
+      {mode === 'cloud' ? (
+        <>
+          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
+            <CloudApp
+              {...(api ? { api } : {})}
+              onOpenFile={() => setMode('file')}
+              {...(cloudTestOptions ? { testOptions: cloudTestOptions } : {})}
+            />
+          </main>
+          <footer className="border-t border-slate-200 px-4 py-4 text-center text-xs text-slate-500">
+            Your data goes only to your own cloud. No trackers, no third parties.
+          </footer>
+        </>
+      ) : (
+        <LocalFileApp {...(store ? { store } : {})} />
+      )}
     </div>
   )
 }

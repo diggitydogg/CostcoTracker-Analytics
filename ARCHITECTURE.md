@@ -2,7 +2,11 @@
 
 Vite + React + TypeScript + Tailwind single-page app, plus a small API (`server/`) that runs as Cloudflare Pages Functions over D1. The cloud design (D1 schema, auth, sync protocol, free-tier budget) is in **`docs/CLOUD_ARCHITECTURE.md`**. No telemetry.
 
-The UI does not call the API yet. Until it does, the production build keeps a Content-Security-Policy with `connect-src 'none'`, so the browser itself blocks any network request from the page. It becomes `connect-src 'self'` when the UI starts using the same-origin API.
+The UI has two modes:
+- **Cloud** (default): owner sign-in, plus management of iPhones, sync, import and backup against the same-origin API.
+- **File on this device**: the original local viewer, kept in `LocalFileApp`.
+
+The production build sets a Content-Security-Policy of `connect-src 'self'`, so the browser itself blocks any request to another origin.
 
 ## Layers
 
@@ -14,9 +18,11 @@ src/
     dataset.ts         LoadedDataset = validated export + app-generated import metadata
     summary.ts         Record counts shown after import (not analytics)
     sync/              Sync protocol schemas, canonical hashing, reconciliation planning (shared with server)
-  persistence/       IndexedDB storage: today the local dataset, later the browser cache of D1
-  app/               React hook orchestrating import / remember / forget
+  persistence/       IndexedDB storage for the local-file mode (D1 is canonical in cloud mode)
+  app/               React hook orchestrating local import / remember / forget
+  cloud/             Typed same-origin API client, session hook, upload and backup workflows
   ui/                Presentational components; no calculations
+    cloud/             Cloud screens: sign-in, overview, sync, iPhones, import, backup
   fixtures/          Synthetic data only
   test/              Test setup and fixture helpers
 server/              Portable API handler (auth, sync, export) over a 4-method SQL interface

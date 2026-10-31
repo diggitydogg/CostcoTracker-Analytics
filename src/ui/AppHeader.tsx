@@ -29,9 +29,9 @@ export function AppHeader({ storage, hasDataset, hasLocalData, busy, onForget }:
   const label = storageLabel(storage, hasDataset)
 
   return (
-    <header className="border-b border-slate-200 bg-white">
+    <div className="border-b border-slate-200 bg-white">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
-        <h1 className="text-lg font-semibold tracking-tight">CostcoTracker Analytics</h1>
+        <h2 className="text-base font-semibold tracking-tight">File on this device</h2>
         {label && (
           <span
             data-testid="storage-status"
@@ -84,6 +84,6 @@ export function AppHeader({ storage, hasDataset, hasLocalData, busy, onForget }:
           </div>
         )}
       </div>
-    </header>
+    </div>
   )
 }
