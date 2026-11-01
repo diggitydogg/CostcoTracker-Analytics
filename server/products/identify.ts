@@ -15,7 +15,7 @@
  * the identified name; AI suggestions with owner review for what remains).
  */
 import { cleanDescription, type SuggestRequestItem } from '../../src/analytics/categories/suggestProtocol'
-import type { IdentifyResponse, IdentifyResult, ProductIdentity } from '../../src/analytics/products/identityProtocol'
+import { isUsableIdentity, type IdentifyResponse, type IdentifyResult, type ProductIdentity } from '../../src/analytics/products/identityProtocol'
 import type { AiBinding } from '../ai/categorySuggest'
 import { PRODUCT_NORMALIZATION_MODEL } from '../ai/config'
 import type { SqlDatabase } from '../db'
@@ -26,7 +26,7 @@ export const NOT_FOUND_RETRY_MS = 30 * 24 * 60 * 60 * 1000
 
 type Row = {
   item_number: string
-  status: 'identified' | 'not_found'
+  status: 'identified' | 'provisional' | 'not_found'
   receipt_description: string
   normalized_name: string | null
   brand: string | null
@@ -34,6 +34,9 @@ type Row = {
   source_url: string | null
   image_url: string | null
   confidence: number
+  evidence: ProductIdentity['evidence']
+  evidence_sources: number
+  corroborating_url: string | null
   method: string
   looked_up_at: string
   retry_after: string | null
@@ -50,16 +53,20 @@ export function rowToIdentity(r: Row): ProductIdentity {
     sourceUrl: r.source_url,
     imageUrl: r.image_url,
     confidence: r.confidence,
+    evidence: r.evidence,
+    evidenceSources: r.evidence_sources,
+    corroboratingUrl: r.corroborating_url,
     method: r.method,
     lookedUpAt: r.looked_up_at,
   }
 }
 
 const COLUMNS =
-  'item_number, status, receipt_description, normalized_name, brand, product_type, source_url, image_url, confidence, method, looked_up_at, retry_after'
+  'item_number, status, receipt_description, normalized_name, brand, product_type, source_url, image_url, confidence, evidence, evidence_sources, corroborating_url, method, looked_up_at, retry_after'
 
 export async function listIdentities(db: SqlDatabase): Promise<ProductIdentity[]> {
-  const rows = await db.all<Row>(`SELECT ${COLUMNS} FROM product_identities WHERE status = 'identified' ORDER BY item_number LIMIT 20000`)
+  // Identified and provisional (provisional is shown for transparency but never used automatically).
+  const rows = await db.all<Row>(`SELECT ${COLUMNS} FROM product_identities WHERE status IN ('identified', 'provisional') ORDER BY item_number LIMIT 20000`)
   return rows.map(rowToIdentity)
 }
 
@@ -154,7 +161,8 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
   for (const item of items) {
     const row = cache.get(item.itemNumber)
     const fresh = row && (row.status === 'identified' || (row.retry_after !== null && row.retry_after > now.toISOString()))
-    if (row && fresh) results.set(item.itemNumber, { ...rowToIdentity(row), cached: true })
+    // Without a search provider, even a stale provisional/not_found row is better than nothing.
+    if (row && (fresh || !search)) results.set(item.itemNumber, { ...rowToIdentity(row), cached: true })
     else if (!search) results.set(item.itemNumber, { itemNumber: item.itemNumber, status: 'unavailable', reason: 'Web search is not configured.' })
     else toSearch.push(item)
   }
@@ -178,11 +186,13 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
     }
   }
 
-  // Optional AI normalization of everything found, in one call.
+  // Optional AI normalization, in one call, only for identities with strong evidence.
+  // It may clean names; it never changes status, evidence or confidence.
   let normalized = new Map<string, Normalized>()
-  if (ai && found.length > 0) {
+  const strong = found.filter((f) => f.candidate.evidence !== 'single-source')
+  if (ai && strong.length > 0) {
     try {
-      normalized = await normalizeWithAi(ai, found)
+      normalized = await normalizeWithAi(ai, strong)
     } catch (error) {
       console.error('normalize_error', error instanceof Error ? error.name : 'unknown')
     }
@@ -194,7 +204,8 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
       const n = normalized.get(f.itemNumber)
       return {
         itemNumber: f.itemNumber,
-        status: 'identified',
+        // One non-Costco source is only a possible match: kept for transparency, never used automatically.
+        status: f.candidate.evidence === 'single-source' ? 'provisional' : 'identified',
         receiptDescription: f.receiptDescription,
         normalizedName: n?.normalizedName ?? (cleanProductTitle(f.candidate.result.title) || f.receiptDescription),
         brand: n?.brand ?? null,
@@ -202,6 +213,9 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
         sourceUrl: f.candidate.result.url,
         imageUrl: f.candidate.result.imageUrl,
         confidence: f.candidate.confidence,
+        evidence: f.candidate.evidence,
+        evidenceSources: f.candidate.sources,
+        corroboratingUrl: f.candidate.corroboratingUrl,
         method: n ? 'web-search+ai' : 'web-search',
         lookedUpAt: at,
         cached: false,
@@ -218,6 +232,9 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
         sourceUrl: null,
         imageUrl: null,
         confidence: 0,
+        evidence: null,
+        evidenceSources: 0,
+        corroboratingUrl: null,
         method: 'web-search',
         lookedUpAt: at,
         cached: false,
@@ -228,10 +245,11 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
     const retryAfter = new Date(now.getTime() + NOT_FOUND_RETRY_MS).toISOString()
     await db.batch(
       fresh.map((r) => ({
-        sql: `INSERT INTO product_identities (${COLUMNS}, search_provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        sql: `INSERT INTO product_identities (${COLUMNS}, search_provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT (item_number) DO UPDATE SET status = excluded.status, receipt_description = excluded.receipt_description,
                 normalized_name = excluded.normalized_name, brand = excluded.brand, product_type = excluded.product_type,
                 source_url = excluded.source_url, image_url = excluded.image_url, confidence = excluded.confidence,
+                evidence = excluded.evidence, evidence_sources = excluded.evidence_sources, corroborating_url = excluded.corroborating_url,
                 method = excluded.method, looked_up_at = excluded.looked_up_at, retry_after = excluded.retry_after,
                 search_provider = excluded.search_provider`,
         params: [
@@ -244,9 +262,13 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
           r.sourceUrl,
           r.imageUrl,
           r.confidence,
+          r.evidence,
+          r.evidenceSources,
+          r.corroboratingUrl,
           r.method,
           r.lookedUpAt,
-          r.status === 'not_found' ? retryAfter : null,
+          // Weak or missing evidence is re-checked later; a usable identity is kept.
+          r.status === 'identified' ? null : retryAfter,
           search?.name ?? null,
         ],
       })),
@@ -256,12 +278,12 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
   return { searchConfigured: search !== null, results: items.map((i) => results.get(i.itemNumber)!) }
 }
 
-/** Cached identities for the AI suggestion prompt (confident ones only). */
+/** Cached identities for the AI suggestion prompt: usable ones only (Costco.com or corroborated), never provisional. */
 export async function identitiesFor(db: SqlDatabase, itemNumbers: readonly string[]): Promise<Map<string, ProductIdentity>> {
   if (itemNumbers.length === 0) return new Map()
   const rows = await db.all<Row>(
     `SELECT ${COLUMNS} FROM product_identities WHERE status = 'identified' AND item_number IN (${itemNumbers.map(() => '?').join(', ')})`,
     [...itemNumbers],
   )
-  return new Map(rows.map((r) => [r.item_number, rowToIdentity(r)]))
+  return new Map(rows.map(rowToIdentity).filter(isUsableIdentity).map((i) => [i.itemNumber, i]))
 }

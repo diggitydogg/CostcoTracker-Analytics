@@ -36,17 +36,27 @@ export const identifyRequestSchema = z
 
 export type IdentifyRequestItem = SuggestRequestItem
 
+export type IdentityEvidence = 'costco.com' | 'corroborated' | 'single-source'
+
 /** A cached product identity, as the dashboard sees it. */
 export type ProductIdentity = {
   itemNumber: string
-  status: 'identified' | 'not_found'
+  /** identified = usable; provisional = one non-Costco source only (display only, never used automatically). */
+  status: 'identified' | 'provisional' | 'not_found'
   receiptDescription: string
   normalizedName: string | null
   brand: string | null
   productType: string | null
   sourceUrl: string | null
   imageUrl: string | null
+  /** Derived only from the evidence class (never raised by AI). */
   confidence: number
+  /** Why the identity was accepted (null for not_found). */
+  evidence: IdentityEvidence | null
+  /** Distinct sites that named the exact item number. */
+  evidenceSources: number
+  /** The agreeing second source, for corroborated identities. */
+  corroboratingUrl: string | null
   method: string
   lookedUpAt: string
 }
@@ -65,7 +75,7 @@ export type IdentifyResponse = {
 const text = z.string().max(300).nullable()
 export const productIdentitySchema = z.object({
   itemNumber: z.string(),
-  status: z.enum(['identified', 'not_found']),
+  status: z.enum(['identified', 'provisional', 'not_found']),
   receiptDescription: z.string(),
   normalizedName: text,
   brand: text,
@@ -73,6 +83,9 @@ export const productIdentitySchema = z.object({
   sourceUrl: z.string().max(2048).nullable(),
   imageUrl: z.string().max(2048).nullable(),
   confidence: z.number().min(0).max(1),
+  evidence: z.enum(['costco.com', 'corroborated', 'single-source']).nullable(),
+  evidenceSources: z.number().int().min(0),
+  corroboratingUrl: z.string().max(2048).nullable(),
   method: z.string(),
   lookedUpAt: z.string(),
 })
@@ -95,11 +108,25 @@ export const identitiesResponseSchema = z.object({ identities: z.array(productId
 export type ProductIdentities = Readonly<Record<string, ProductIdentity>>
 
 /**
+ * Whether an identity is strong enough to feed the deterministic rules and
+ * the AI prompt: Costco's own page or 2+ agreeing independent sources. A
+ * single non-Costco source (provisional) never is.
+ */
+export function isUsableIdentity(identity: ProductIdentity | undefined): identity is ProductIdentity {
+  return (
+    !!identity &&
+    identity.status === 'identified' &&
+    (identity.evidence === 'costco.com' || identity.evidence === 'corroborated') &&
+    identity.confidence >= IDENTIFY_LIMITS.minConfidenceForUse
+  )
+}
+
+/**
  * The texts the deterministic category rules may also match for an item:
- * the identified product name and product type, only for confident
+ * the identified product name and product type, only for usable
  * identities. Receipt descriptions are always tried first.
  */
 export function identityTexts(identity: ProductIdentity | undefined): string[] {
-  if (!identity || identity.status !== 'identified' || identity.confidence < IDENTIFY_LIMITS.minConfidenceForUse) return []
+  if (!isUsableIdentity(identity)) return []
   return [identity.normalizedName, identity.productType].filter((t): t is string => typeof t === 'string' && t.trim() !== '')
 }

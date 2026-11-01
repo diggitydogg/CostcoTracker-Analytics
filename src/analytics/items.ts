@@ -36,7 +36,7 @@ export type ItemStats = {
   /** Distinct description variants, most recent first. */
   descriptions: string[]
   category: CategoryAssignment
-  /** Public product identity found by web search for this item number, if any (display/traceability only). */
+  /** Public product identity found by web search for this item number (identified or provisional), for display and traceability. */
   identity: ProductIdentity | null
   cohort: ItemCohort
   recent: boolean
@@ -144,7 +144,8 @@ export function computeItems(
       displayDescription: descriptions[0] ?? `Item ${itemNumber}`,
       descriptions,
       category: categorize(itemNumber, descriptions, overrides, rules, identityTexts(identities[itemNumber])),
-      identity: identities[itemNumber]?.status === 'identified' ? identities[itemNumber]! : null,
+      // Identified and provisional identities are shown for traceability; only usable ones feed the rules (identityTexts).
+      identity: identities[itemNumber] && identities[itemNumber].status !== 'not_found' ? identities[itemNumber] : null,
       cohort,
       recent: daysSince !== null && daysSince <= thresholds.recentDays,
       firstPurchaseDate: days.length ? dateFromDay(days[0]!) : null,

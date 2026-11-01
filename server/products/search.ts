@@ -65,32 +65,67 @@ export function searchQueries(itemNumber: string, receiptDescription: string): s
   return [`Costco ${itemNumber}${desc ? ` ${desc}` : ''}`, `Costco "${itemNumber}"`]
 }
 
-export type Candidate = { result: SearchResult; confidence: number }
+/**
+ * How strong the evidence for an identity is:
+ * - `costco.com`: Costco's own page names this exact item number;
+ * - `corroborated`: two or more independent sites (different hosts) name it and their titles agree;
+ * - `single-source`: only one non-Costco site (or disagreeing sites) — provisional, not used automatically.
+ */
+export type Evidence = 'costco.com' | 'corroborated' | 'single-source'
+
+/** Confidence comes ONLY from the evidence class; nothing downstream (including AI) may raise it. */
+export const EVIDENCE_CONFIDENCE: Record<Evidence, number> = { 'costco.com': 0.9, corroborated: 0.8, 'single-source': 0.4 }
+
+export type Candidate = {
+  result: SearchResult
+  confidence: number
+  evidence: Evidence
+  /** Distinct hosts whose result names the exact item number. */
+  sources: number
+  /** For `corroborated`: the independent result that agrees with `result`. */
+  corroboratingUrl: string | null
+}
 
 const hostOf = (url: string) => {
   try {
-    return new URL(url).hostname.toLowerCase()
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '')
   } catch {
     return ''
   }
 }
 
+const STOP = new Set(['COSTCO', 'WHOLESALE', 'ITEM', 'THE', 'AND', 'FOR', 'WITH', 'PACK', 'COUNT', 'SHOP', 'BUY', 'DEALS', 'DEAL', 'SALE', 'PRICE'])
+/** Significant title words: letters, ≥ 3 characters, not boilerplate. */
+const words = (title: string) => new Set(title.toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w.length >= 3 && /[A-Z]/.test(w) && !STOP.has(w)))
+/** Two titles agree when they share at least two significant words. */
+export function titlesAgree(a: string, b: string): boolean {
+  const wa = words(a)
+  let shared = 0
+  for (const w of words(b)) if (wa.has(w)) shared += 1
+  return shared >= 2
+}
+
 /**
  * Picks the result that identifies exactly this item number: it must appear
- * as a whole number in the title, URL or snippet. Costco's own pages rank
- * first. Returns null when no result mentions the item number.
+ * as a whole number in the title, URL or snippet. Returns null when no
+ * result mentions the item number. Evidence (and therefore confidence):
+ * Costco's own page > two agreeing independent sites > one other site.
  */
 export function pickCandidate(itemNumber: string, results: readonly SearchResult[]): Candidate | null {
   const escaped = itemNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const exact = new RegExp(`(^|[^A-Za-z0-9])${escaped}([^A-Za-z0-9]|$)`)
   const matching = results.filter((r) => exact.test(r.title) || exact.test(r.url) || exact.test(r.snippet))
   if (matching.length === 0) return null
-  const isCostco = (r: SearchResult) => /(^|\.)costco\.com$/.test(hostOf(r.url))
-  const best = matching.find(isCostco) ?? matching[0]!
-  // Corroboration by a second independent result raises confidence slightly.
-  const corroborated = matching.length > 1
-  const confidence = isCostco(best) ? 0.9 : corroborated ? 0.8 : 0.7
-  return { result: best, confidence }
+  // One result per host: several pages of one site are not independent sources.
+  const byHost = new Map<string, SearchResult>()
+  for (const r of matching) if (!byHost.has(hostOf(r.url))) byHost.set(hostOf(r.url), r)
+  const sources = byHost.size
+  const costco = [...byHost.entries()].find(([h]) => h === 'costco.com' || h.endsWith('.costco.com'))?.[1]
+  if (costco) return { result: costco, confidence: EVIDENCE_CONFIDENCE['costco.com'], evidence: 'costco.com', sources, corroboratingUrl: null }
+  const [first, ...others] = [...byHost.values()]
+  const agreeing = others.find((o) => titlesAgree(first!.title, o.title))
+  if (agreeing) return { result: first!, confidence: EVIDENCE_CONFIDENCE.corroborated, evidence: 'corroborated', sources, corroboratingUrl: agreeing.url }
+  return { result: first!, confidence: EVIDENCE_CONFIDENCE['single-source'], evidence: 'single-source', sources, corroboratingUrl: null }
 }
 
 /** "Kirkland Signature Organic Quinoa, 4.5 lbs | Costco" → "Kirkland Signature Organic Quinoa, 4.5 lbs". */

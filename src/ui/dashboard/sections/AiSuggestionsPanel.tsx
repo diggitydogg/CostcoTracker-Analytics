@@ -80,10 +80,11 @@ export function AiSuggestionsPanel() {
         </div>
       )}
 
-      {(ai.identification.identified > 0 || ai.identification.notFound > 0) && (
+      {(ai.identification.identified > 0 || ai.identification.provisional > 0 || ai.identification.notFound > 0) && (
         <p className="mt-2 text-sm text-slate-700" data-testid="identification-summary">
           Product lookup this session: {count(ai.identification.identified)} identified by item number
           {ai.identification.categorizedByRules > 0 && ` (${count(ai.identification.categorizedByRules)} now categorized by the description rules from the identified product name)`}
+          {ai.identification.provisional > 0 && `, ${count(ai.identification.provisional)} possible ${ai.identification.provisional === 1 ? 'match' : 'matches'} from a single non-Costco source (not used)`}
           {ai.identification.notFound > 0 && `, ${count(ai.identification.notFound)} not found`}.
         </p>
       )}
@@ -160,7 +161,7 @@ export function AiSuggestionsPanel() {
                           <span className="text-xs text-slate-500">#{sg.itemNumber}</span>
                           {item?.identity && (
                             <span className="block text-xs text-slate-600">
-                              Identified as {item.identity.normalizedName}
+                              {item.identity.status === 'provisional' ? 'Possible match (one non-Costco source, not used):' : 'Identified as'} {item.identity.normalizedName}
                               {item.identity.sourceUrl && (
                                 <>
                                   {' · '}

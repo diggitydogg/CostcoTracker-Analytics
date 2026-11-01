@@ -15,6 +15,9 @@ const identity = (itemNumber: string, name: string, extra: Partial<ProductIdenti
   sourceUrl: 'https://www.costco.com/x.html',
   imageUrl: null,
   confidence: 0.9,
+  evidence: 'costco.com',
+  evidenceSources: 1,
+  corroboratingUrl: null,
   method: 'web-search',
   lookedUpAt: '2026-11-01T00:00:00.000Z',
   ...extra,
@@ -40,10 +43,15 @@ describe('deterministic rules on identified products', () => {
     expect(categorize('3', ['ANKERSOLIX'], { '3': { categoryId: 'home' } }, undefined, ['Anker Power Bank'])).toMatchObject({ categoryId: 'home', source: 'override' })
   })
 
-  it('uses only confident, identified identities', () => {
+  it('uses only identities backed by Costco.com or two agreeing independent sources', () => {
     expect(identityTexts(identity('1', 'Anker Power Bank', { productType: 'power bank' }))).toEqual(['Anker Power Bank', 'power bank'])
+    expect(identityTexts(identity('1', 'Anker Power Bank', { evidence: 'corroborated', evidenceSources: 2, confidence: 0.8 }))).toEqual(['Anker Power Bank'])
+    // One non-Costco page is never enough, whatever the stored status or confidence says.
+    expect(identityTexts(identity('1', 'Anker Power Bank', { status: 'provisional', evidence: 'single-source', confidence: 0.4 }))).toEqual([])
+    expect(identityTexts(identity('1', 'Anker Power Bank', { evidence: 'single-source', confidence: 0.9 }))).toEqual([])
+    expect(identityTexts(identity('1', 'Anker Power Bank', { evidence: null }))).toEqual([])
     expect(identityTexts(identity('1', 'Anker Power Bank', { confidence: 0.5 }))).toEqual([])
-    expect(identityTexts({ ...identity('1', 'x'), status: 'not_found', normalizedName: null })).toEqual([])
+    expect(identityTexts({ ...identity('1', 'x'), status: 'not_found', normalizedName: null, evidence: null })).toEqual([])
     expect(identityTexts(undefined)).toEqual([])
   })
 
@@ -61,5 +69,11 @@ describe('deterministic rules on identified products', () => {
     expect(s.categories.categories.reduce((t, c) => t + c.spendCents, 0)).toBe(s.spending.lifetime.grossCents)
     // Purchase analytics are untouched by identities.
     expect(s.spending).toEqual(before.spending)
+    // A provisional (single-source) identity is shown but does not categorize.
+    const p = buildAnalyticsSnapshot(data, {
+      productIdentities: { '101': identity('101', 'Anker SOLIX C1000 Portable Power Station', { status: 'provisional', evidence: 'single-source', confidence: 0.4 }) },
+    })
+    expect(p.items.byItemNumber.get('101')!.category.categoryId).toBe('uncategorized')
+    expect(p.items.byItemNumber.get('101')!.identity?.status).toBe('provisional')
   })
 })

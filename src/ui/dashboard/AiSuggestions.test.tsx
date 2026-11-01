@@ -238,6 +238,9 @@ describe('identify by item number before asking the AI', () => {
     sourceUrl: `https://www.costco.com/p.${itemNumber}.html`,
     imageUrl: null,
     confidence: 0.9,
+    evidence: 'costco.com',
+    evidenceSources: 1,
+    corroboratingUrl: null,
     method: 'web-search',
     lookedUpAt: '2026-11-01T00:00:00.000Z',
   })
@@ -336,6 +339,25 @@ describe('identify by item number before asking the AI', () => {
     await waitFor(() => expect(failing.fn).toHaveBeenCalledTimes(1))
     expect(failing.fn.mock.calls[0]![0]).toHaveLength(4)
     expect(screen.getByText(/Product lookup: Too many requests\./)).toBeInTheDocument()
+  })
+
+  it('shows a single-source match as provisional and still sends that item to the AI', async () => {
+    const identifier = vi.fn<BatchIdentifier>(async (items) => ({
+      searchConfigured: true,
+      results: items.map((i) =>
+        i.itemNumber === '101'
+          ? { ...identity('101', 'Anker SOLIX C1000 Portable Power Station'), status: 'provisional' as const, evidence: 'single-source' as const, confidence: 0.4, sourceUrl: 'https://deals.example.org/x', cached: false }
+          : { ...identity(i.itemNumber, 'x'), status: 'not_found' as const, normalizedName: null, sourceUrl: null, evidence: null, evidenceSources: 0, confidence: 0, cached: false },
+      ),
+    }))
+    const { user, fn } = await start(identifier)
+    await user.click(runButton())
+    await waitFor(() => expect(fn).toHaveBeenCalledTimes(1))
+    // Not categorized by the rules from a single third-party page: it goes to the AI like any unknown item.
+    expect(fn.mock.calls[0]![0].map((i) => i.itemNumber)).toContain('101')
+    expect(uncategorizedText()).toContain('ANKERSOLIX')
+    expect(await screen.findByTestId('identification-summary')).toHaveTextContent('0 identified by item number, 1 possible match from a single non-Costco source (not used), 3 not found.')
+    expect(await screen.findByTestId('suggestion-101')).toHaveTextContent('Possible match (one non-Costco source, not used): Anker SOLIX C1000 Portable Power Station')
   })
 
   it('notes when web search is not set up', async () => {

@@ -13,8 +13,10 @@ export type BatchIdentifier = (items: SuggestRequestItem[]) => Promise<IdentifyR
 export type SuggestionDecision = 'accepted' | 'changed' | 'left'
 
 export type IdentificationSummary = {
-  /** Items with a product identity found or confirmed this session. */
+  /** Items with a usable product identity (Costco.com or 2+ agreeing sources) found or confirmed this session. */
   identified: number
+  /** Items with only one non-Costco source: shown as possible matches, never used for categorization. */
+  provisional: number
   /** Of those, items the deterministic rules now categorize (no AI needed). */
   categorizedByRules: number
   /** Items no search result named by item number. */
@@ -59,7 +61,7 @@ export function useSuggestionSession(
   const [decisions, setDecisions] = useState<ReadonlyMap<string, SuggestionDecision>>(new Map())
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<SuggestionSession['progress']>(null)
-  const [identification, setIdentification] = useState<IdentificationSummary>({ identified: 0, categorizedByRules: 0, notFound: 0 })
+  const [identification, setIdentification] = useState<IdentificationSummary>({ identified: 0, provisional: 0, categorizedByRules: 0, notFound: 0 })
   const [notes, setNotes] = useState<string[]>([])
   const [errors, setErrors] = useState<string[]>([])
   const [usage, setUsage] = useState<{ requests: number; totalTokens: number | null }>({ requests: 0, totalTokens: null })
@@ -84,13 +86,15 @@ export function useSuggestionSession(
           setProgress({ phase: 'identify', done: 0, total: toIdentify.length })
           const found: ProductIdentity[] = []
           let notFound = 0
+          let provisional = 0
           let done = 0
           for (const batch of batches(toIdentify, IDENTIFY_LIMITS.maxItemsPerRequest)) {
             try {
               const res = await identifier(batch)
               if (!res.searchConfigured) setNotes((n) => (n.some((x) => x.startsWith('Web search')) ? n : [...n, 'Web search is not set up, so only previously identified products were used.']))
               for (const r of res.results) {
-                if (r.status === 'identified') found.push(r)
+                if (r.status === 'identified' || r.status === 'provisional') found.push(r)
+                if (r.status === 'provisional') provisional += 1
                 else if (r.status === 'not_found') notFound += 1
               }
             } catch (error) {
@@ -105,7 +109,12 @@ export function useSuggestionSession(
           // Items the deterministic rules can now categorize from the identified name skip the AI.
           const byRules = new Set(found.filter((f) => identityTexts(f).some((t) => matchRules(t) !== null)).map((f) => f.itemNumber))
           items = all.filter((i) => !byRules.has(i.itemNumber))
-          setIdentification((s) => ({ identified: s.identified + found.length, categorizedByRules: s.categorizedByRules + byRules.size, notFound: s.notFound + notFound }))
+          setIdentification((s) => ({
+            identified: s.identified + found.length - provisional,
+            provisional: s.provisional + provisional,
+            categorizedByRules: s.categorizedByRules + byRules.size,
+            notFound: s.notFound + notFound,
+          }))
         }
       } catch {
         items = all

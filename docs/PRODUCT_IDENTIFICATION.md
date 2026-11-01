@@ -73,6 +73,8 @@ Dashboard → Categories → "Suggest categories with AI" (owner click; Uncatego
 
 ## Search provider and setup
 
+> **Open issue, do not deploy as-is.** The Brave Search API's standard terms do not allow storing or caching results beyond transient use, unless the plan grants storage rights. The `product_identities` cache stores data derived from results. A provider whose terms clearly permit this (or an architecture that stores only what the terms allow) must be chosen before merge. `CLAUDE.md` now requires that results be stored only as far as the provider's terms explicitly allow.
+
 **Provider:** the Brave Search API, through a small `WebSearch` adapter in `server/products/search.ts` (`GET https://api.search.brave.com/res/v1/web/search`, header `X-Subscription-Token`). Swapping providers means writing one adapter and choosing it in `server/products/config.ts`.
 
 **Setup (Cloudflare Pages):**
@@ -101,8 +103,17 @@ Dashboard → Categories → "Suggest categories with AI" (owner click; Uncatego
 
 ## Reliability rules (same physical product)
 - A search result is accepted only if it contains the **exact** item number as a whole number. "16277701" does not match "1627770", and a product that is merely similar but lacks the number is rejected.
-- costco.com results are preferred (confidence 0.9). Otherwise a result corroborated by a second one gets 0.8, and a single other site 0.7.
-- Rules and the AI use an identity only at confidence ≥ 0.6.
+- **Evidence decides confidence.** Every identity records its evidence (`evidence`, `evidence_sources`, `corroborating_url`) so it is clear why it was accepted:
+
+  | Evidence | Status | Confidence | Used by rules and the AI prompt? |
+  |---|---|---|---|
+  | `costco.com`: Costco's own page names the exact item number | `identified` | 0.9 | Yes |
+  | `corroborated`: 2+ independent sites (different hosts) name it **and** their titles agree (≥ 2 significant shared words) | `identified` | 0.8 | Yes |
+  | `single-source`: only one non-Costco site, or sites that disagree | `provisional` | 0.4 | **No.** Shown as "possible match", re-checked after 30 days; the item goes to the AI step like any unknown item |
+
+- Several pages of the same site count as one source.
+- `isUsableIdentity` is the single gate: `identified`, evidence `costco.com` or `corroborated`, confidence ≥ 0.6.
+- **AI never manufactures certainty.** Confidence comes only from the evidence class. AI normalization runs only on usable identities and can only rename them; it never changes status, evidence or confidence.
 - The AI normalizer may only rename and describe the found result. If its output is invalid, the cleaned search title is used.
 
 ## Next: photo-based return matching (design, not built yet)

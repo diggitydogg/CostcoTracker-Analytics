@@ -33,9 +33,15 @@ export function ItemDetail({ itemNumber }: { itemNumber: string }) {
         )}
         {item.identity && (
           <p className="text-xs text-slate-600" data-testid="product-identity">
-            Identified by item number as <span className="font-medium text-slate-900">{item.identity.normalizedName}</span>
+            {item.identity.status === 'provisional' ? 'Possible match by item number (not used for categories): ' : 'Identified by item number as '}
+            <span className="font-medium text-slate-900">{item.identity.normalizedName}</span>
             {item.identity.brand && ` · ${item.identity.brand}`}
-            {item.identity.productType && ` · ${item.identity.productType}`} · {share(item.identity.confidence, 0)} confidence
+            {item.identity.productType && ` · ${item.identity.productType}`} · {share(item.identity.confidence, 0)} confidence ·{' '}
+            {item.identity.evidence === 'costco.com'
+              ? "Costco's own page names this item number"
+              : item.identity.evidence === 'corroborated'
+                ? `${count(item.identity.evidenceSources)} independent sites name this item number and agree`
+                : 'only one non-Costco site names this item number'}
             {item.identity.sourceUrl && (
               <>
                 {' · '}

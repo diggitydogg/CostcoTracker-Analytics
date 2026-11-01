@@ -5,9 +5,10 @@
 -- deleted at any time; items are simply looked up again on request.
 CREATE TABLE product_identities (
   item_number TEXT PRIMARY KEY,
-  -- 'identified': a search result explicitly mentioned this item number.
-  -- 'not_found': nothing did; not searched again before retry_after.
-  status TEXT NOT NULL CHECK (status IN ('identified', 'not_found')),
+  -- 'identified': Costco's own page, or 2+ independent agreeing sites, name this exact item number.
+  -- 'provisional': only one non-Costco site does; shown, but never used for categorization.
+  -- 'not_found': no result names it. Provisional and not_found are retried after retry_after.
+  status TEXT NOT NULL CHECK (status IN ('identified', 'provisional', 'not_found')),
   -- The (abbreviated) receipt description that was searched.
   receipt_description TEXT NOT NULL,
   normalized_name TEXT,
@@ -16,6 +17,11 @@ CREATE TABLE product_identities (
   source_url TEXT,
   image_url TEXT,
   confidence REAL NOT NULL DEFAULT 0 CHECK (confidence >= 0 AND confidence <= 1),
+  -- Why the identity was accepted (traceability): 'costco.com', 'corroborated' or 'single-source'.
+  evidence TEXT CHECK (evidence IS NULL OR evidence IN ('costco.com', 'corroborated', 'single-source')),
+  -- Distinct sites whose result named the exact item number, and the agreeing second source if any.
+  evidence_sources INTEGER NOT NULL DEFAULT 0,
+  corroborating_url TEXT,
   -- How the identity was derived: 'web-search' or 'web-search+ai'.
   method TEXT NOT NULL,
   search_provider TEXT,
