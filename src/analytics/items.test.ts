@@ -47,7 +47,9 @@ describe('items', () => {
     })
     expect(s.items.cohorts.recent).toEqual(['occasional', 'staple'])
     expect(s.items.byItemNumber.get('dormant')!.daysSinceLastPurchase).toBe(680)
-    expect(s.items.uniqueItemCount).toBe(5)
+    // 6 item numbers: 5 purchased + 'ghost', seen only in a return/adjustment.
+    expect(s.items.itemCounts).toEqual({ all: 6, purchased: 5, returnsOrAdjustmentsOnly: 1 })
+    expect(s.items.items).toHaveLength(s.items.itemCounts.all)
   })
 
   it('lets thresholds be tuned in one place', () => {

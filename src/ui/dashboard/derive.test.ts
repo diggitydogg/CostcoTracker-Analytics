@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildAnalyticsSnapshot } from '../../analytics'
 import { DatasetBuilder, generateDataset } from '../../analytics/test/builder'
-import { changeVs, lifetimeTotals, periods, queryItems, totalsForRange, type ItemQuery } from './derive'
+import { chainBreaks, changeVs, describeBreak, itemsSummary, lifetimeTotals, periods, queryItems, totalsForRange, type ItemQuery } from './derive'
 
 const snapshot = () => buildAnalyticsSnapshot(generateDataset({ receipts: 150, itemsPerReceipt: 6, returns: 12, adjustments: 6, seed: 21 }))
 
@@ -95,5 +95,43 @@ describe('item queries', () => {
     expect(priced(asc)).toEqual([...priced(asc)].sort((a, b) => a - b))
     const spend = queryItems(s.items.items, base).map((i) => i.totalSpentCents)
     expect(spend).toEqual([...spend].sort((a, b) => b - a))
+  })
+})
+
+describe('item count wording', () => {
+  it('names purchased and returns/adjustments-only items when they differ', () => {
+    expect(itemsSummary({ all: 693, purchased: 691, returnsOrAdjustmentsOnly: 2 })).toBe(
+      '693 items: 691 bought in this data and 2 seen only in returns or price adjustments.',
+    )
+    expect(itemsSummary({ all: 1, purchased: 1, returnsOrAdjustmentsOnly: 0 })).toBe('1 item, all bought in this data.')
+  })
+})
+
+describe('price index chain breaks', () => {
+  it('finds where each chain breaks and why', () => {
+    const b = new DatasetBuilder()
+    for (const i of ['A', 'B', 'C', 'D', 'E']) b.buy('2023-03-01', i, 1000)
+    b.buy('2024-03-01', 'F', 1000)
+    b.buy('2025-03-01', 'F', 1100)
+    const s = buildAnalyticsSnapshot(b.build())
+    const breaks = chainBreaks(s.inflation.yearly)
+    expect(breaks.simple).toEqual({ linkIndex: 0, from: '2023', to: '2024', reason: 'no-comparable-items' })
+    expect(breaks.weighted).toEqual(breaks.simple)
+    expect(describeBreak(breaks.simple!)).toBe('no item was bought with a recorded price in both 2023 and 2024')
+  })
+
+  it('distinguishes a weighted-only break and an unbroken chain', () => {
+    const b = new DatasetBuilder()
+    b.buy('2023-03-01', 'A', 1000)
+    b.buy('2024-03-01', 'A', 1100)
+    const breaks = chainBreaks(buildAnalyticsSnapshot(b.build()).inflation.yearly)
+    expect(breaks.simple).toBeNull()
+    expect(breaks.weighted).toMatchObject({ linkIndex: 0, reason: 'too-few-for-weighted' })
+    const ok = new DatasetBuilder()
+    for (const i of ['A', 'B', 'C', 'D', 'E']) {
+      ok.buy('2023-03-01', i, 1000)
+      ok.buy('2024-03-01', i, 1050)
+    }
+    expect(chainBreaks(buildAnalyticsSnapshot(ok.build()).inflation.yearly)).toEqual({ weighted: null, simple: null })
   })
 })

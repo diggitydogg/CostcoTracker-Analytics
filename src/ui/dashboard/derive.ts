@@ -4,9 +4,10 @@
  * buckets (so they reconcile with it exactly), and item lists are filtered and
  * sorted views of the engine's per-item statistics.
  */
-import type { AnalyticsSnapshot, ItemCohort, ItemStats } from '../../analytics'
+import type { AnalyticsSnapshot, InflationSeries, ItemCohort, ItemStats } from '../../analytics'
 import { addMonths, type MonthKey } from '../../analytics/dates'
 import { relativeChange } from '../../analytics/stats'
+import { count } from './format'
 
 export type PeriodId = 'all' | 'last12' | 'fullYear'
 
@@ -136,7 +137,7 @@ export const COHORT_LABEL: Record<ItemCohort, string> = {
   'dormant-staple': 'Dormant staple',
   occasional: 'Occasional',
   'one-and-done': 'One-and-done',
-  'not-purchased': 'Not bought in data',
+  'not-purchased': 'Returns/adjustments only',
 }
 
 const COHORT_ORDER: ItemCohort[] = ['staple', 'dormant-staple', 'occasional', 'one-and-done', 'not-purchased']
@@ -176,4 +177,37 @@ export function queryItems(items: readonly ItemStats[], q: ItemQuery): ItemStats
     const c = typeof va === 'string' ? va.localeCompare(vb as string) : va - (vb as number)
     return c !== 0 ? dir * c : a.itemNumber < b.itemNumber ? -1 : 1
   })
+}
+
+/** Names both counts when they differ, so the header never contradicts the "All" filter. */
+export function itemsSummary(c: { all: number; purchased: number; returnsOrAdjustmentsOnly: number }): string {
+  const items = (n: number) => `${count(n)} ${n === 1 ? 'item' : 'items'}`
+  if (c.returnsOrAdjustmentsOnly === 0) return `${items(c.all)}, all bought in this data.`
+  return `${items(c.all)}: ${count(c.purchased)} bought in this data and ${count(c.returnsOrAdjustmentsOnly)} seen only in returns or price adjustments.`
+}
+
+// ---------------------------------------------------------------- price index chains
+
+export type ChainBreak = { linkIndex: number; from: string; to: string; reason: 'no-comparable-items' | 'too-few-for-weighted' }
+
+/**
+ * Where each chained index first breaks: the first link whose relative is
+ * missing. Every period after it has no chained value (never bridged), while
+ * later year-over-year links can still be valid on their own.
+ */
+export function chainBreaks(series: InflationSeries): { weighted: ChainBreak | null; simple: ChainBreak | null } {
+  const find = (key: 'weightedRelative' | 'simpleRelative'): ChainBreak | null => {
+    const i = series.links.findIndex((l) => l[key] === null)
+    if (i < 0) return null
+    const l = series.links[i]!
+    return { linkIndex: i, from: l.from, to: l.to, reason: l.matchedItems === 0 ? 'no-comparable-items' : 'too-few-for-weighted' }
+  }
+  return { weighted: find('weightedRelative'), simple: find('simpleRelative') }
+}
+
+/** Plain-language description of a chain break. */
+export function describeBreak(b: ChainBreak, label: (p: string) => string = (p) => p): string {
+  return b.reason === 'no-comparable-items'
+    ? `no item was bought with a recorded price in both ${label(b.from)} and ${label(b.to)}`
+    : `too few items were bought in both ${label(b.from)} and ${label(b.to)} for the weighted index`
 }

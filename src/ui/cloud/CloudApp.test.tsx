@@ -68,13 +68,13 @@ describe('sign-in and session', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in is not set up on this cloud yet.')
   })
 
-  it('signs in, never persists the key, and shows the cloud overview', async () => {
+  it('signs in, never persists the key, and shows Cloud status', async () => {
     const h = await createCloudHarness()
     const { user } = renderApp(h)
     await signInThroughUi(user)
     expect(await screen.findByTestId('dashboard')).toBeInTheDocument() // the dashboard is the landing view
-    await openTab(user, 'Overview')
-    expect(await screen.findByRole('heading', { name: 'Cloud status' })).toBeInTheDocument()
+    await openTab(user, 'Cloud status')
+    expect(await screen.findByRole('heading', { name: 'Cloud status', level: 3 })).toBeInTheDocument()
     expect(await screen.findByText('Connected')).toBeInTheDocument()
     expect(screen.getByText('Export version 1')).toBeInTheDocument()
     expect(h.hasSessionCookie()).toBe(true)
@@ -86,8 +86,8 @@ describe('sign-in and session', () => {
     const h = await createCloudHarness()
     await h.signIn()
     const { user } = renderApp(h)
-    await openTab(user, 'Overview')
-    expect(await screen.findByRole('heading', { name: 'Cloud status' })).toBeInTheDocument()
+    await openTab(user, 'Cloud status')
+    expect(await screen.findByRole('heading', { name: 'Cloud status', level: 3 })).toBeInTheDocument()
     expect(screen.queryByLabelText('Access key')).not.toBeInTheDocument()
   })
 
@@ -95,7 +95,7 @@ describe('sign-in and session', () => {
     const h = await createCloudHarness()
     await h.signIn()
     const { user } = renderApp(h)
-    await openTab(user, 'Overview')
+    await openTab(user, 'Cloud status')
     await user.click(await screen.findByRole('button', { name: 'Sign out of this browser' }))
     expect(await screen.findByText('You are signed out.')).toBeInTheDocument()
     expect(h.hasSessionCookie()).toBe(false)
@@ -106,7 +106,7 @@ describe('sign-in and session', () => {
     const h = await createCloudHarness()
     await h.signIn()
     const { user } = renderApp(h)
-    await openTab(user, 'Overview')
+    await openTab(user, 'Cloud status')
     await user.click(await screen.findByRole('button', { name: 'Sign out everywhere' }))
     expect(screen.getByText(/This signs out every browser/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Sign out all browsers' }))
@@ -117,7 +117,7 @@ describe('sign-in and session', () => {
     const h = await createCloudHarness()
     await h.signIn()
     const { user } = renderApp(h)
-    await openTab(user, 'Overview')
+    await openTab(user, 'Cloud status')
     await screen.findByText('Connected')
     h.expireSessions()
     await user.click(screen.getByRole('button', { name: 'Refresh' }))
@@ -146,17 +146,17 @@ describe('cloud unavailable', () => {
     expect(await screen.findByRole('heading', { name: 'Import your CostcoTracker export' })).toBeInTheDocument()
   })
 
-  it('shows an error on the overview when the cloud fails, without leaving the page', async () => {
+  it('shows an error on Cloud status when the cloud fails, without leaving the page', async () => {
     const h = await createCloudHarness()
     await h.signIn()
     h.failStatus((_, path) => path === '/api/export/meta', 500, 10)
     const { user } = renderApp(h)
     // The dashboard (landing view) reports the failure in place…
     expect(await screen.findByRole('alert')).toHaveTextContent('unexpected response (HTTP 500)')
-    // …and so does the overview.
-    await openTab(user, 'Overview')
+    // …and so does Cloud status.
+    await openTab(user, 'Cloud status')
     expect(await screen.findByRole('alert')).toHaveTextContent('unexpected response (HTTP 500)')
-    expect(screen.getByRole('heading', { name: 'Cloud status' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Cloud status', level: 3 })).toBeInTheDocument()
   })
 })
 
@@ -422,7 +422,7 @@ describe('networking', () => {
     const h = await createCloudHarness()
     const { user } = renderApp(h)
     await signInThroughUi(user)
-    for (const tab of ['Sync', 'iPhones', 'Import', 'Backup', 'Overview']) await openTab(user, tab)
+    for (const tab of ['Sync', 'iPhones', 'Import', 'Backup', 'Cloud status']) await openTab(user, tab)
     await screen.findByText('Connected')
     expect(h.requests.length).toBeGreaterThan(5)
     for (const r of h.requests) expect(r.path).toMatch(/^\/api\//)

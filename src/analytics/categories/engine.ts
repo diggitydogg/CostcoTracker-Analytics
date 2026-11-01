@@ -41,7 +41,7 @@ export function normalizeDescription(description: string): string {
   return description.replace(/\s+/g, ' ').trim()
 }
 
-type CompiledPhrase = { text: string; tokens: { value: string; prefix: boolean }[] }
+type CompiledPhrase = { text: string; tokens: { value: string; prefix: boolean }[]; atStart: boolean; atEnd: boolean }
 type CompiledRule = { rule: CategoryRule; phrases: CompiledPhrase[] }
 
 const compiledCache = new WeakMap<readonly CategoryRule[], CompiledRule[]>()
@@ -51,10 +51,19 @@ function compile(rules: readonly CategoryRule[]): CompiledRule[] {
   if (!compiled) {
     compiled = rules.map((rule) => ({
       rule,
-      phrases: rule.phrases.map((text) => ({
-        text,
-        tokens: text.split(' ').map((t) => (t.endsWith('*') ? { value: t.slice(0, -1), prefix: true } : { value: t, prefix: false })),
-      })),
+      phrases: rule.phrases.map((text) => {
+        // "^" / "$" anchor a phrase to the start / end of the description, so
+        // "^KS BATH$" matches only a description that is exactly those tokens.
+        const atStart = text.startsWith('^')
+        const atEnd = text.endsWith('$')
+        const body = text.slice(atStart ? 1 : 0, atEnd ? -1 : undefined)
+        return {
+          text,
+          atStart,
+          atEnd,
+          tokens: body.split(' ').map((t) => (t.endsWith('*') ? { value: t.slice(0, -1), prefix: true } : { value: t, prefix: false })),
+        }
+      }),
     }))
     compiledCache.set(rules, compiled)
   }
@@ -63,7 +72,10 @@ function compile(rules: readonly CategoryRule[]): CompiledRule[] {
 
 function phraseMatches(tokens: readonly string[], phrase: CompiledPhrase): boolean {
   const n = phrase.tokens.length
-  for (let start = 0; start + n <= tokens.length; start++) {
+  if (tokens.length < n) return false
+  const first = phrase.atEnd ? tokens.length - n : 0
+  const last = phrase.atStart ? 0 : tokens.length - n
+  for (let start = Math.max(0, first); start <= last; start++) {
     let ok = true
     for (let k = 0; k < n; k++) {
       const want = phrase.tokens[k]!

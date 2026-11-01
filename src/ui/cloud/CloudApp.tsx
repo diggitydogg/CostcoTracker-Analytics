@@ -16,7 +16,7 @@ import { SyncPanel } from './SyncPanel'
 type Tab = 'dashboard' | 'overview' | 'sync' | 'devices' | 'import' | 'backup'
 const TABS: { id: Tab; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
-  { id: 'overview', label: 'Overview' },
+  { id: 'overview', label: 'Cloud status' },
   { id: 'sync', label: 'Sync' },
   { id: 'devices', label: 'iPhones' },
   { id: 'import', label: 'Import' },

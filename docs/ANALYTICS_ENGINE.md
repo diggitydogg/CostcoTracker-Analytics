@@ -78,7 +78,7 @@ There is exactly one analytics implementation.
 - **WHSE_ caveat:** receipts with a synthesized `WHSE_` key may merge same-day trips (an iOS limitation), so counts are a lower bound. This is flagged in data quality.
 
 ## Items
-Statistics are computed per `itemNumber`.
+Statistics are computed per `itemNumber`. `items` holds **every** item number in the data, including ones seen only in returns or price adjustments (cohort `not-purchased`). `itemCounts` names the two counts explicitly: `all` (= `items.length`), `purchased`, and `returnsOrAdjustmentsOnly` = all − purchased. Use `purchased` when a figure is about purchases and `all` when it is about the item list.
 
 **Description and dates:**
 - Description variants are listed most recent first. The display name is the latest one, normalized for whitespace only.
@@ -211,7 +211,8 @@ s_i(t) = Σ lineTotalCents of those lines
   - an explicit Uncategorized fallback.
 - **Rules** (`categories/rules.ts`) are pure data, separate from the matcher and from the analytics.
   - A description is upper-cased and split into alphanumeric tokens.
-  - A rule phrase must appear as contiguous whole tokens; `*` marks a prefix token.
+  - A rule phrase must appear as contiguous whole tokens; `*` marks a prefix token. A leading `^` / trailing `$` anchors the phrase to the start / end of the description (`^KS BATH$` matches only the bare truncated receipt text).
+  - New rules prefer brand names and multi-word product phrases, sit above any broader rule that would capture them, and come with positive and negative test cases. Ambiguous products are left Uncategorized for the owner to override.
   - The first matching rule wins, so specific phrases ("PEANUT BUTTER", "HOT DOG*", "PAPER TOWEL*", "MILK CHOCOLATE") come before the generic words they contain.
 - **Order of decision:** a user **override** by `itemNumber` first, then the rules (trying description variants most recent first), then Uncategorized. Each assignment records its source, rule ID and matched phrase, for explainability.
 - **Overrides** live outside the purchase records, so changing one never alters historical data.
