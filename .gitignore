@@ -13,3 +13,6 @@ coverage/
 # Cloudflare local state and secrets
 .wrangler/
 .dev.vars
+
+# Local SKU list for the live search validation (your purchases; never commit)
+.live-skus.json

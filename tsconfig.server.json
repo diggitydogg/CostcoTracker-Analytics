@@ -16,5 +16,5 @@
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true
   },
-  "include": ["server", "functions"]
+  "include": ["server", "functions", "scripts/live"]
 }

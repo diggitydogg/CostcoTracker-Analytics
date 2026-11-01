@@ -17,7 +17,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply costcotracker-analytics --remote",
     "db:backup:remote": "wrangler d1 export costcotracker-analytics --remote --output",
     "auth:generate-key": "node scripts/generate-access-key.mjs",
-    "deploy": "npm run build && wrangler pages deploy"
+    "deploy": "npm run build && wrangler pages deploy",
+    "validate:search": "vitest run --config vitest.live.config.ts"
   },
   "dependencies": {
     "react": "^19.3.1",
