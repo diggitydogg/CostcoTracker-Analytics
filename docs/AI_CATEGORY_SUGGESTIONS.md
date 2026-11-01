@@ -21,15 +21,17 @@ description rules ─► Uncategorized ─► [owner clicks] Workers AI suggesti
 | | |
 |---|---|
 | Provider | Cloudflare Workers AI, through the Pages Functions binding **`AI`**. No OpenAI, Anthropic or other third-party credentials. |
-| Model | `@cf/meta/llama-3.1-70b-instruct` (Meta Llama 3.1 70B Instruct) |
+| Model | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (Meta Llama 3.3 70B Instruct, FP8, fast) |
 | Where to change it | **`server/ai/config.ts`** → `CATEGORY_SUGGESTION_MODEL` (plus temperature, `max_tokens` and the request limit). Nothing else depends on the model id. |
 
 **Why this model:**
-- Cloudflare lists it among the models that support **JSON Mode** (`response_format` with a JSON Schema). This feature relies on JSON Mode for structured output.
-- It is a stable, generally available instruction-tuned model, not a beta or preview.
+- Cloudflare's Workers AI **JSON Mode** documentation lists it as supporting `response_format: { "type": "json_schema", "json_schema": <schema> }`. This feature relies on that for structured output.
+- The request passes the schema **bare** under `json_schema`, without OpenAI's `{ name, schema }` wrapper, which is the format Cloudflare documents for native `@cf/` models. A test locks in this request shape.
+- It is a generally available instruction-tuned model, not a beta or preview.
 - It is large enough to recognize retail brands and Costco-style abbreviations far better than the 8B models.
+- It replaces `@cf/meta/llama-3.1-70b-instruct`, which the current JSON Mode documentation does not list.
 
-**Choosing a different model:** use another Workers AI text-generation model that supports JSON Mode. Check Cloudflare's current JSON Mode model list, because it changes over time.
+**Choosing a different model:** use another Workers AI text-generation model that Cloudflare's JSON Mode page lists as supported, and check that page when you change it, because the list changes over time. Even with JSON Mode, the server still validates every answer.
 
 **JSON Mode failures:** Cloudflare documents that JSON Mode can fail with "JSON Mode couldn't be met". That, and any other model error, is reported to the dashboard as a retryable `ai_failed` error for that batch. Nothing is changed.
 
@@ -74,7 +76,7 @@ description rules ─► Uncategorized ─► [owner clicks] Workers AI suggesti
 **Response:**
 ```json
 {
-  "model": "@cf/meta/llama-3.1-70b-instruct",
+  "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
   "suggestions": [{ "itemNumber": "1712345", "categoryId": "electronics", "subcategoryId": null, "confidence": 0.92, "reason": "Anker Solix power station" }],
   "usage": { "promptTokens": 900, "completionTokens": 120, "totalTokens": 1020 }
 }
@@ -143,23 +145,52 @@ The suggestions themselves live only in memory for the review session.
   - 24 KiB body;
   - `max_tokens` 2048;
   - a best-effort limit of **12 requests per 5 minutes per Workers isolate** (`CATEGORY_SUGGESTION_RATE_LIMIT`; in memory, no D1 change).
-- **Free tier:** Workers AI has a free daily allocation. Occasional reviews of a few hundred items fit comfortably. On the Workers Free plan, requests beyond the daily allocation fail with an error rather than incurring charges. Check Cloudflare's current Workers AI pricing.
+
+## Pricing (informational)
+This is Cloudflare's Workers AI pricing model as of this change. The app makes no billing assumptions: it never counts neurons and has no plan-specific logic.
+- Workers AI includes a free allocation of **10,000 neurons per day**.
+- **Workers Free plan:** requests beyond the daily free allocation **fail** rather than being charged automatically. In the dashboard that shows up as an ordinary `ai_failed` batch error, with **Retry failed items** available later. Nothing changes.
+- **Workers Paid plan:** usage above the free allocation **is charged** at Cloudflare's per-neuron rate.
+- An occasional review of a few hundred items is expected to be small relative to the daily allocation, but the actual neuron cost depends on the model and on prompt and answer length. The dashboard shows token counts when Workers AI reports them, and the Cloudflare dashboard shows actual usage.
+- Check Cloudflare's current Workers AI pricing page before relying on these figures.
 
 ## Cloudflare setup
-- **`wrangler.toml`** declares the binding:
-  ```toml
-  [ai]
-  binding = "AI"
-  ```
-  For a Pages project managed in the dashboard, you can instead add it under **Workers & Pages → your project → Settings → Bindings → Add → Workers AI**, variable name **`AI`**, for Production (and Preview if wanted). Redeploy after adding it.
-- **The D1 binding `DB` is unchanged.** The committed `database_id` stays a placeholder; keep your real ID out of the repository.
-- **Local development:** `npm run dev:cloud` / `wrangler pages dev` reaches Workers AI remotely and needs a logged-in Cloudflare account. Without that, the endpoint answers `ai_not_configured` and the rest of the app works. Automated tests never call Workers AI; they mock the binding.
+**Production (required before using AI suggestions).** The Workers AI binding is configured on the Pages project in the Cloudflare dashboard:
+
+1. **Workers & Pages → CostcoTracker Analytics project → Settings → Bindings → Add binding → Workers AI.**
+2. Binding / variable name: **`AI`** (exactly).
+3. Add it for the **Production** environment (and **Preview** if you use preview deployments).
+4. **Redeploy** the project. Bindings apply to deployments made after the change.
+5. Check: in the dashboard, Categories → **Suggest categories with AI** should return suggestions instead of "AI suggestions are not set up on this cloud…".
+
+Do not rely on `wrangler pages deploy` or `wrangler.toml` alone to provision the production binding.
+
+**`wrangler.toml`** still contains:
+```toml
+[ai]
+binding = "AI"
+```
+- It is valid configuration: Wrangler's own config reader parses it as `ai: { binding: "AI" }`.
+- It documents the expected binding name and is used by local tooling (`wrangler pages dev`).
+- It is not what provisions production; the dashboard step above is.
+
+**Unchanged:** the D1 binding `DB`. The committed `database_id` stays the all-zero placeholder; keep your real ID out of the repository.
+
+**Local development:**
+- `npm run dev:cloud` / `wrangler pages dev` reaches Workers AI remotely and needs a logged-in Cloudflare account.
+- Without that, the endpoint answers `ai_not_configured` and the rest of the app works.
+- Automated tests never call Workers AI; they mock the binding.
+
+**If the binding is missing**, AI is off and nothing else is affected:
+- `POST /api/categories/suggest` answers **503 `ai_not_configured`**.
+- The dashboard's AI panel shows that message.
+- Analytics, overrides, Reload dashboard and every other tab work normally.
 
 ## Failure behavior
 | Situation | What the owner sees | Data changed? |
 |---|---|---|
-| No `AI` binding | "AI suggestions are not set up on this cloud…" | No |
-| Model error or JSON Mode failure | "Some items could not be classified (n)" plus **Retry failed items** | No |
+| No `AI` binding on the Pages project | "AI suggestions are not set up on this cloud: … Add it under Settings → Bindings, then redeploy." The rest of the dashboard works | No |
+| Model error, JSON Mode failure, or the daily free allocation used up (Workers Free) | "Some items could not be classified (n)" plus **Retry failed items** | No |
 | Some batches fail | Successful suggestions stay reviewable | No |
 | Invalid model output | That item shows as abstained | No |
 | Rate limit | "Too many AI suggestion requests…" | No |

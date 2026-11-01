@@ -1,19 +1,23 @@
 /**
  * AI category suggestion settings — the ONE place to change the model.
  *
- * Provider: Cloudflare Workers AI, through the Pages Functions binding `AI`
- * (wrangler.toml `[ai] binding = "AI"`). No third-party API keys.
+ * Provider: Cloudflare Workers AI, through the Pages Functions binding `AI`.
+ * In production that binding is configured on the Pages project in the
+ * Cloudflare dashboard (Settings → Bindings → Workers AI, name `AI`); see
+ * docs/AI_CATEGORY_SUGGESTIONS.md. No third-party API keys.
  *
- * Model: Meta Llama 3.1 70B Instruct on Workers AI.
- * - Listed by Cloudflare as supporting JSON Mode (`response_format` with a
- *   JSON Schema), which this feature relies on for structured output.
- * - A stable, generally available instruction-tuned model (not a beta or
- *   preview), and large enough to recognize retail brands and Costco-style
- *   abbreviations far better than 8B models.
+ * Model: Meta Llama 3.3 70B Instruct (FP8, fast) on Workers AI.
+ * - Listed in Cloudflare's Workers AI JSON Mode documentation as supporting
+ *   `response_format: { type: "json_schema", json_schema: <schema> }`, which
+ *   this feature relies on for structured output. (Native `@cf/` models take
+ *   the schema bare under `json_schema`, without OpenAI's `name` wrapper.)
+ * - A generally available instruction-tuned model (not a beta or preview),
+ *   large enough to recognize retail brands and Costco-style abbreviations.
  * To switch models, change CATEGORY_SUGGESTION_MODEL to another Workers AI
- * text-generation model that supports JSON Mode; nothing else depends on it.
+ * text-generation model that Cloudflare lists as supporting JSON Mode;
+ * nothing else depends on it.
  */
-export const CATEGORY_SUGGESTION_MODEL = '@cf/meta/llama-3.1-70b-instruct'
+export const CATEGORY_SUGGESTION_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
 
 export const CATEGORY_SUGGESTION_MODEL_OPTIONS = {
   /** Low temperature: classification, not creativity. */

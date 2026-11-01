@@ -182,6 +182,11 @@ describe('POST /api/categories/suggest', () => {
     const res = await h.call('POST', '/api/categories/suggest', { cookie, body: { items: ITEMS } })
     expect(res.status).toBe(503)
     expect(res.body.error.code).toBe('ai_not_configured')
+    // The message tells the owner exactly what to configure.
+    expect(res.body.error.message).toContain('Workers AI binding named "AI"')
+    expect(res.body.error.message).toContain('Settings → Bindings')
+    // Other owner endpoints are unaffected by the missing binding.
+    expect((await h.call('GET', '/api/export/meta', { cookie })).status).toBe(200)
   })
 
   it('reports a model failure (e.g. "JSON Mode couldn\'t be met") as a retryable error', async () => {
@@ -271,6 +276,20 @@ describe('model output normalization', () => {
     expect(out[2]!.confidence).toBe(0)
     expect(out[2]!.reason.length).toBeLessThanOrEqual(SUGGEST_LIMITS.maxReasonLength)
     expect(out[2]!.reason).not.toContain('\n')
+  })
+})
+
+describe('model configuration', () => {
+  it('uses a Workers AI model documented as supporting JSON Mode, with the native bare-schema request shape', () => {
+    expect(CATEGORY_SUGGESTION_MODEL).toBe('@cf/meta/llama-3.3-70b-instruct-fp8-fast')
+    const input = buildModelInput([{ itemNumber: '1', descriptions: ['KS CHIANTI'] }])
+    const format = input.response_format as { type: string; json_schema: Record<string, unknown> }
+    expect(format.type).toBe('json_schema')
+    // Native @cf/ models take the schema itself under json_schema (no OpenAI { name, schema } wrapper).
+    expect(format.json_schema).toMatchObject({ type: 'object', required: ['suggestions'] })
+    expect(format.json_schema).not.toHaveProperty('name')
+    expect(format.json_schema).not.toHaveProperty('schema')
+    expect(input).not.toHaveProperty('stream') // JSON Mode does not support streaming
   })
 })
 

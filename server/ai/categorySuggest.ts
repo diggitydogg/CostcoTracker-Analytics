@@ -188,7 +188,11 @@ function usageOf(raw: unknown): SuggestResponse['usage'] {
 
 export async function suggestCategories(ai: AiBinding | undefined, items: readonly SuggestRequestItem[]): Promise<SuggestResponse> {
   if (!ai || typeof ai.run !== 'function') {
-    throw new ApiError(503, 'ai_not_configured', 'AI suggestions are not set up on this cloud (the Workers AI binding "AI" is missing).')
+    throw new ApiError(
+      503,
+      'ai_not_configured',
+      'AI suggestions are not set up on this cloud: the Pages project has no Workers AI binding named "AI". Add it under Settings → Bindings, then redeploy. Everything else works without it.',
+    )
   }
   let raw: unknown
   try {
