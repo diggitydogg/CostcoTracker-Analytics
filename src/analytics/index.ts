@@ -9,7 +9,16 @@ export type { SpendingAnalytics, SpendBucket, MonthlySpend, YearlySpend } from '
 export type { TripAnalytics } from './trips'
 export type { ItemAnalytics, ItemStats, ItemCohort } from './items'
 export { priceHistory, type PriceHistory, type PricePoint } from './prices'
-export { inflationSeries, type InflationAnalytics, type InflationLink, type InflationSeries } from './inflation'
+export {
+  INFLATION_CONFIDENCE_LEVELS,
+  inflationSeries,
+  linkConfidence,
+  type InflationAnalytics,
+  type InflationConfidence,
+  type InflationLink,
+  type InflationSeries,
+} from './inflation'
+export type { PurchaseLinkedRate } from './linkage'
 export type { ReturnAnalytics } from './returns'
 export type { AdjustmentAnalytics } from './adjustments'
 export { normalizeWarehouse, type WarehouseAnalytics, type WarehouseGroup } from './warehouses'

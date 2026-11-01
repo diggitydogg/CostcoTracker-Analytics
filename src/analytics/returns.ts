@@ -8,15 +8,22 @@
  *   Time-to-return needs sourcePurchaseId, which the iOS exporter leaves null,
  *   so it is reported as unavailable instead of being inferred.
  *
- * Return rates (only where a defensible denominator exists):
- * - dollar return rate = Σ known merchandise returned ÷ gross purchase spend;
- * - unit return rate = Σ returned quantity of items also purchased in the data
- *   ÷ Σ purchased quantity of those same items;
- * - per item = returned quantity ÷ purchased quantity (flagged when > 1,
- *   i.e. returns of purchases older than the data).
+ * OBSERVED RATIOS, NOT RETURN RATES. Returns are not linked to the purchase
+ * they came from (sourcePurchaseId is null), so a return in this data may be
+ * for a purchase made before the data begins. These ratios are descriptive
+ * comparisons over the observed dataset, never causal purchase-linked rates:
+ * - observedReturnValueRatio = Σ recorded merchandise returned ÷ observed gross
+ *   purchase spend ("Returns as % of observed spend");
+ * - observedUnitReturnRatio = Σ returned quantity of items also purchased in
+ *   the data ÷ Σ purchased quantity of those same items;
+ * - per item observedUnitReturnRatio = returned ÷ purchased quantity (flagged
+ *   when > 1, which proves returns of purchases older than the data).
+ * `purchaseLinkedReturnRate` states whether a true linked rate is available
+ * (only when every return links to a purchase in the data; see linkage.ts).
  */
 import { dayNumber, monthKey, type MonthKey } from './dates'
 import type { ItemAnalytics } from './items'
+import { purchaseLinkedRate, type PurchaseLinkedRate } from './linkage'
 import type { AnalyticsIndex } from './model'
 import { cleanQuantity, mean, median, ratio } from './stats'
 
@@ -29,8 +36,11 @@ export type ItemReturnSummary = {
   quantity: number
   amountCents: number
   purchasedQuantity: number
-  /** returned ÷ purchased quantity; null if the item was not purchased in the data. */
-  returnRate: number | null
+  /**
+   * Observed returned ÷ purchased quantity within this dataset (not a linked
+   * return rate); null if the item was not purchased in the data.
+   */
+  observedUnitReturnRatio: number | null
   returnsExceedPurchases: boolean
 }
 
@@ -46,8 +56,12 @@ export type ReturnAnalytics = {
   topByCount: ItemReturnSummary[]
   topByAmount: ItemReturnSummary[]
   items: ItemReturnSummary[]
-  dollarReturnRate: number | null
-  unitReturnRate: number | null
+  /** Returns as % of observed spend: Σ recorded returned merchandise ÷ observed gross spend. Descriptive, not purchase-linked. */
+  observedReturnValueRatio: number | null
+  /** Returned ÷ purchased quantity over items seen in both. Descriptive, not purchase-linked. */
+  observedUnitReturnRatio: number | null
+  /** A true purchase-linked return rate; unavailable unless every return has a sourcePurchaseId found in the data. */
+  purchaseLinkedReturnRate: PurchaseLinkedRate
   timeToReturn: { available: false; reason: string } | { available: true; linkedReturns: number; averageDays: number | null; medianDays: number | null }
 }
 
@@ -96,7 +110,7 @@ export function computeReturns(index: AnalyticsIndex, items: ItemAnalytics, gros
         quantity: i.returns.quantity,
         amountCents: i.returns.amountCents,
         purchasedQuantity: i.totalQuantity,
-        returnRate: rate,
+        observedUnitReturnRatio: rate,
         returnsExceedPurchases: rate !== null && rate > 1,
       }
     })
@@ -133,10 +147,15 @@ export function computeReturns(index: AnalyticsIndex, items: ItemAnalytics, gros
     topByCount: [...summaries].sort((a, b) => b.count - a.count || b.quantity - a.quantity || tie(a, b)).slice(0, topN),
     topByAmount: [...summaries].sort((a, b) => b.amountCents - a.amountCents || tie(a, b)).slice(0, topN),
     items: summaries,
-    dollarReturnRate: grossCents > 0 ? ratio(total.amountCents, grossCents) : null,
-    unitReturnRate: ratio(
+    observedReturnValueRatio: grossCents > 0 ? ratio(total.amountCents, grossCents) : null,
+    observedUnitReturnRatio: ratio(
       matched.reduce((s, m) => s + m.quantity, 0),
       matched.reduce((s, m) => s + m.purchasedQuantity, 0),
+    ),
+    purchaseLinkedReturnRate: purchaseLinkedRate(
+      index.returns.map((r) => ({ sourcePurchaseId: r.sourcePurchaseId, amount: r.merchandiseAmountCents ?? 0 })),
+      index,
+      'return',
     ),
     timeToReturn,
   }

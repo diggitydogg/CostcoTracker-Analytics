@@ -3,13 +3,19 @@
  * opportunities). Amounts are adjustment.amountCents (positive savings);
  * transactionTotalCents is never summed.
  *
- * Savings rates:
- * - overall = Σ adjustment amounts ÷ gross purchase spend;
- * - adjusted items = Σ adjustments on items purchased in the data ÷ spend on
- *   those items (how much was recovered where adjustments happened).
+ * OBSERVED RATIOS, NOT SAVINGS RATES. Adjustments are not linked to the
+ * purchase they adjust (sourcePurchaseId is null), so an adjustment may relate
+ * to a purchase outside the observed data. These are descriptive ratios:
+ * - observedAdjustmentValueRatio = Σ adjustment amounts ÷ observed gross spend
+ *   ("Price adjustments as % of observed spend");
+ * - observedAdjustedItemsValueRatio = Σ adjustments on items purchased in the
+ *   data ÷ observed spend on those items (matched by item number only);
+ * - per item observedValueRatio = item adjustments ÷ item observed spend.
+ * `purchaseLinkedSavingsRate` states whether a true linked rate is available.
  */
 import { monthKey, type MonthKey } from './dates'
 import type { ItemAnalytics } from './items'
+import { purchaseLinkedRate, type PurchaseLinkedRate } from './linkage'
 import type { AnalyticsIndex } from './model'
 import { ratio, roundCents } from './stats'
 
@@ -21,8 +27,8 @@ export type ItemAdjustmentSummary = {
   count: number
   amountCents: number
   itemSpendCents: number
-  /** amount recovered ÷ item spend in the data; null if not purchased in the data. */
-  savingsRate: number | null
+  /** Adjustments ÷ observed item spend in this dataset (not purchase-linked); null if not purchased in the data. */
+  observedValueRatio: number | null
 }
 
 export type AdjustmentAnalytics = {
@@ -37,8 +43,12 @@ export type AdjustmentAnalytics = {
   topByCount: ItemAdjustmentSummary[]
   topByAmount: ItemAdjustmentSummary[]
   items: ItemAdjustmentSummary[]
-  overallSavingsRate: number | null
-  adjustedItemsSavingsRate: number | null
+  /** Price adjustments as % of observed spend. Descriptive, not purchase-linked. */
+  observedAdjustmentValueRatio: number | null
+  /** Adjustments ÷ observed spend on the same item numbers. Descriptive, not purchase-linked. */
+  observedAdjustedItemsValueRatio: number | null
+  /** A true purchase-linked savings rate; unavailable unless every adjustment has a sourcePurchaseId found in the data. */
+  purchaseLinkedSavingsRate: PurchaseLinkedRate
 }
 
 const empty = (): AdjustmentBucket => ({ count: 0, amountCents: 0, ids: [] })
@@ -74,7 +84,7 @@ export function computeAdjustments(index: AnalyticsIndex, items: ItemAnalytics, 
       count: i.adjustments.count,
       amountCents: i.adjustments.amountCents,
       itemSpendCents: i.totalSpentCents,
-      savingsRate: i.totalSpentCents > 0 ? ratio(i.adjustments.amountCents, i.totalSpentCents) : null,
+      observedValueRatio: i.totalSpentCents > 0 ? ratio(i.adjustments.amountCents, i.totalSpentCents) : null,
     }))
   const tie = (a: ItemAdjustmentSummary, b: ItemAdjustmentSummary) => (a.itemNumber < b.itemNumber ? -1 : 1)
   const purchased = summaries.filter((s) => s.itemSpendCents > 0)
@@ -92,10 +102,15 @@ export function computeAdjustments(index: AnalyticsIndex, items: ItemAnalytics, 
     topByCount: [...summaries].sort((a, b) => b.count - a.count || b.amountCents - a.amountCents || tie(a, b)).slice(0, topN),
     topByAmount: [...summaries].sort((a, b) => b.amountCents - a.amountCents || tie(a, b)).slice(0, topN),
     items: summaries,
-    overallSavingsRate: grossCents > 0 ? ratio(total, grossCents) : null,
-    adjustedItemsSavingsRate: ratio(
+    observedAdjustmentValueRatio: grossCents > 0 ? ratio(total, grossCents) : null,
+    observedAdjustedItemsValueRatio: ratio(
       purchased.reduce((s, p) => s + p.amountCents, 0),
       purchased.reduce((s, p) => s + p.itemSpendCents, 0),
+    ),
+    purchaseLinkedSavingsRate: purchaseLinkedRate(
+      index.adjustments.map((a) => ({ sourcePurchaseId: a.sourcePurchaseId, amount: a.amountCents })),
+      index,
+      'price adjustment',
     ),
   }
 }

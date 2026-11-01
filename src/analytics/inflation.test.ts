@@ -1,5 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_THRESHOLDS } from './config'
+import { linkConfidence } from './inflation'
 import { buildAnalyticsSnapshot } from './snapshot'
 import { DatasetBuilder } from './test/builder'
 
@@ -40,8 +42,11 @@ describe('personal inflation', () => {
     const inf = buildAnalyticsSnapshot(basket()).inflation
     const link = inf.yearly.links[0]!
     expect(link.spendCoverage).toBeCloseTo((1500 + 1780) / (1600 + 3779), 12)
-    expect(link.reliable).toBe(true)
-    expect(inf.summary.sufficientData).toBe(true)
+    expect(link.confidence).toBe('reliable')
+    expect(inf.summary.latestYearConfidence).toBe('reliable')
+    expect(inf.summary.cumulativeConfidence).toBe('reliable')
+    expect(inf.summary.reasons).toEqual([])
+    expect(inf.yearly.periods.map((p) => p.chainConfidence)).toEqual([null, 'reliable'])
     expect(inf.summary.firstYear).toBe('2022')
     expect(inf.summary.cumulativeSimpleChange).toBeCloseTo(link.simpleChange!, 12)
     expect(inf.summary.annualizedSimpleChange).toBeCloseTo(link.simpleChange!, 12)
@@ -49,7 +54,7 @@ describe('personal inflation', () => {
     expect(inf.eligibleItems).toBe(6) // A–E plus G (priced in both years, even if excluded as an outlier)
   })
 
-  it('refuses to call sparse data reliable', () => {
+  it('marks too few matched items insufficient but still reports the computable index', () => {
     const b = new DatasetBuilder()
     b.buy('2022-03-01', 'A', 100)
     b.buy('2022-03-01', 'B', 200)
@@ -60,9 +65,85 @@ describe('personal inflation', () => {
     expect(link.matchedItems).toBe(2)
     expect(link.simpleRelative).toBeCloseTo(Math.sqrt(1.2 * 1.05), 12)
     expect(link.weightedRelative).toBeNull()
-    expect(link.reliable).toBe(false)
-    expect(inf.summary.sufficientData).toBe(false)
-    expect(inf.summary.reasons.join(' ')).toMatch(/Only 2 item/)
+    expect(link.confidence).toBe('insufficient')
+    expect(link.spendCoverage).toBe(1)
+    expect(inf.yearly.periods[1]!.simpleIndex).toBeCloseTo(100 * Math.sqrt(1.2 * 1.05), 10)
+    expect(inf.summary.cumulativeSimpleChange).toBeCloseTo(Math.sqrt(1.2 * 1.05) - 1, 12)
+    expect(inf.summary.latestYearConfidence).toBe('insufficient')
+    expect(inf.summary.reasons.join(' ')).toMatch(/Insufficient: only 2 item/)
+  })
+
+  it('calculates but labels low coverage when matched spend is under the reliable threshold', () => {
+    // Five matched items worth ~10% of item spend: reliable under the old 5% bar, low-coverage under 20%.
+    const b = new DatasetBuilder()
+    for (const item of ['A', 'B', 'C', 'D', 'E']) {
+      b.buy('2022-02-01', item, 100)
+      b.buy('2023-02-01', item, 110)
+    }
+    b.buy('2022-03-01', 'BIG1', 4500)
+    b.buy('2023-03-01', 'BIG2', 4500)
+    const inf = buildAnalyticsSnapshot(b.build()).inflation
+    const link = inf.yearly.links[0]!
+    expect(link.matchedItems).toBe(5)
+    expect(link.spendCoverage).toBeCloseTo(1050 / 10050, 12)
+    expect(link.confidence).toBe('low-coverage')
+    // The number is not hidden.
+    expect(link.simpleRelative).toBeCloseTo(1.1, 12)
+    expect(link.weightedRelative).toBeCloseTo(1.1, 12)
+    expect(inf.yearly.periods[1]!.simpleIndex).toBeCloseTo(110, 10)
+    expect(inf.summary.cumulativeSimpleChange).toBeCloseTo(0.1, 12)
+    expect(inf.summary.latestYearConfidence).toBe('low-coverage')
+    expect(inf.yearly.linksByConfidence).toEqual({ insufficient: 0, 'low-coverage': 1, reliable: 0 })
+    expect(inf.summary.reasons.join(' ')).toMatch(/Low coverage: the 5 matched items represent 10.4% .*at least 20%/)
+
+    const q = buildAnalyticsSnapshot(b.build()).quality
+    expect(q.inflation.latestYearConfidence).toBe('low-coverage')
+    expect(q.limitations.join(' ')).toMatch(/cover too little of your spending/)
+  })
+
+  it('uses the centralized, configurable thresholds', () => {
+    expect(DEFAULT_THRESHOLDS.inflationReliableMinSpendCoverage).toBeGreaterThanOrEqual(0.2)
+    const b = new DatasetBuilder()
+    for (const item of ['A', 'B', 'C', 'D', 'E']) {
+      b.buy('2022-02-01', item, 100)
+      b.buy('2023-02-01', item, 110)
+    }
+    b.buy('2022-03-01', 'BIG1', 4500)
+    const data = b.build()
+    expect(buildAnalyticsSnapshot(data).inflation.yearly.links[0]!.confidence).toBe('low-coverage')
+    expect(buildAnalyticsSnapshot(data, { thresholds: { inflationReliableMinSpendCoverage: 0.1 } }).inflation.yearly.links[0]!.confidence).toBe('reliable')
+    expect(buildAnalyticsSnapshot(data, { thresholds: { inflationMinMatchedItems: 6 } }).inflation.yearly.links[0]!.confidence).toBe('insufficient')
+    // Boundary: exactly at the coverage threshold is reliable.
+    expect(linkConfidence(5, 0.2, DEFAULT_THRESHOLDS)).toBe('reliable')
+    expect(linkConfidence(5, 0.1999, DEFAULT_THRESHOLDS)).toBe('low-coverage')
+    expect(linkConfidence(4, 1, DEFAULT_THRESHOLDS)).toBe('insufficient')
+    expect(linkConfidence(5, null, DEFAULT_THRESHOLDS)).toBe('insufficient')
+  })
+
+  it('carries the weakest link confidence along the chain', () => {
+    const b = new DatasetBuilder()
+    for (const item of ['A', 'B', 'C', 'D', 'E']) {
+      b.buy('2021-02-01', item, 100)
+      b.buy('2022-02-01', item, 105)
+      b.buy('2023-02-01', item, 110)
+    }
+    b.buy('2022-03-01', 'BIG1', 9000) // only dilutes the 2021→2022 and 2022→2023 links
+    const inf = buildAnalyticsSnapshot(b.build()).inflation
+    expect(inf.yearly.links.map((l) => l.confidence)).toEqual(['low-coverage', 'low-coverage'])
+    const c = new DatasetBuilder()
+    for (const item of ['A', 'B', 'C', 'D', 'E']) {
+      c.buy('2021-02-01', item, 100)
+      c.buy('2022-02-01', item, 105)
+      c.buy('2023-02-01', item, 110)
+    }
+    c.buy('2021-03-01', 'BIG1', 9000) // dilutes only the first link
+    const inf2 = buildAnalyticsSnapshot(c.build()).inflation
+    expect(inf2.yearly.links.map((l) => l.confidence)).toEqual(['low-coverage', 'reliable'])
+    expect(inf2.yearly.periods.map((p) => p.chainConfidence)).toEqual([null, 'low-coverage', 'low-coverage'])
+    expect(inf2.summary.latestYearConfidence).toBe('reliable')
+    expect(inf2.summary.cumulativeConfidence).toBe('low-coverage')
+    expect(inf2.summary.reasons.join(' ')).toMatch(/earlier year-to-year link is not reliable/)
+    expect(inf2.summary.cumulativeSimpleChange).toBeCloseTo(0.1, 12)
   })
 
   it('breaks the chain instead of guessing when a link has no matched items', () => {
@@ -94,7 +175,7 @@ describe('personal inflation', () => {
       b.buy('2024-02-10', item, 550)
     }
     const monthly = buildAnalyticsSnapshot(b.build()).inflation.monthly
-    expect(monthly.links[0]).toMatchObject({ from: '2024-01', to: '2024-02', matchedItems: 5, reliable: true })
+    expect(monthly.links[0]).toMatchObject({ from: '2024-01', to: '2024-02', matchedItems: 5, confidence: 'reliable' })
     expect(monthly.links[0]!.simpleRelative).toBeCloseTo(1.1, 12)
   })
 

@@ -19,12 +19,19 @@ export type AnalyticsThresholds = {
   /** Price volatility needs at least this many dated price points. */
   volatilityMinPoints: number
 
-  /** Inflation: a period link needs at least this many matched items to be reported as reliable. */
+  /**
+   * Inflation: a period link with fewer matched items than this is
+   * "insufficient" (its simple index is still shown when computable).
+   */
   inflationMinMatchedItems: number
   /** Inflation: the weighted (Törnqvist) link is only computed with at least this many matched items. */
   inflationWeightedMinItems: number
-  /** Inflation: a link also needs matched items to cover at least this share of the period's item spend. */
-  inflationMinSpendCoverage: number
+  /**
+   * Inflation: a link with enough matched items is "reliable" only when the
+   * matched items cover at least this share of the two periods' item spend;
+   * below it the link is "low-coverage".
+   */
+  inflationReliableMinSpendCoverage: number
   /** Inflation: price relatives outside [1/x, x] are treated as product/pack-size changes and excluded. */
   inflationMaxRelative: number
 
@@ -42,7 +49,7 @@ export const DEFAULT_THRESHOLDS: AnalyticsThresholds = {
   volatilityMinPoints: 3,
   inflationMinMatchedItems: 5,
   inflationWeightedMinItems: 5,
-  inflationMinSpendCoverage: 0.05,
+  inflationReliableMinSpendCoverage: 0.2,
   inflationMaxRelative: 3,
   topN: 10,
 }

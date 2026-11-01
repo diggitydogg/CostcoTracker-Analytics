@@ -3,8 +3,9 @@
  * analytics should be read. Counts only — never purchase values beyond
  * aggregate spend shares.
  */
+import type { AdjustmentAnalytics } from './adjustments'
 import type { CategoryAnalytics } from './categories/analytics'
-import type { InflationAnalytics } from './inflation'
+import type { InflationAnalytics, InflationConfidence } from './inflation'
 import type { ReturnAnalytics } from './returns'
 import type { AnalyticsIndex } from './model'
 import { ratio } from './stats'
@@ -39,7 +40,12 @@ export type DataQuality = {
   unknownWarehouseReceipts: number
   uncategorized: { itemCount: number; itemShare: number | null; spendCents: number; spendShare: number | null }
   itemsWithReturnsExceedingPurchases: string[]
-  inflation: { eligibleItems: number; reliableYearlyLinks: number; reliableMonthlyLinks: number; sufficientData: boolean }
+  inflation: {
+    eligibleItems: number
+    yearlyLinksByConfidence: Record<InflationConfidence, number>
+    monthlyLinksByConfidence: Record<InflationConfidence, number>
+    latestYearConfidence: InflationConfidence | null
+  }
   /** Plain-language notes on limitations that apply to THIS dataset. */
   limitations: string[]
 }
@@ -49,6 +55,7 @@ export function computeQuality(
   grossCents: number,
   categories: CategoryAnalytics,
   returns: ReturnAnalytics,
+  adjustments: AdjustmentAnalytics,
   inflation: InflationAnalytics,
   warehouses: WarehouseAnalytics,
   source: DatasetSourceInfo | null,
@@ -96,9 +103,9 @@ export function computeQuality(
     itemsWithReturnsExceedingPurchases: returns.items.filter((r) => r.returnsExceedPurchases).map((r) => r.itemNumber),
     inflation: {
       eligibleItems: inflation.eligibleItems,
-      reliableYearlyLinks: inflation.yearly.reliableLinks,
-      reliableMonthlyLinks: inflation.monthly.reliableLinks,
-      sufficientData: inflation.summary.sufficientData,
+      yearlyLinksByConfidence: inflation.yearly.linksByConfidence,
+      monthlyLinksByConfidence: inflation.monthly.linksByConfidence,
+      latestYearConfidence: inflation.summary.latestYearConfidence,
     },
     limitations: [],
   }
@@ -124,8 +131,12 @@ export function computeQuality(
   if (quality.itemsWithReturnsExceedingPurchases.length > 0) {
     notes.push(`${quality.itemsWithReturnsExceedingPurchases.length} item(s) were returned in larger quantities than purchased in this data (purchases from before the data begins).`)
   }
-  notes.push('Returns and price adjustments are matched to items by item number only; they are not linked to a specific purchase.')
-  if (!inflation.summary.sufficientData) notes.push('There is not enough repeat-price data for a reliable personal inflation estimate.')
+  if (!returns.purchaseLinkedReturnRate.available || !adjustments.purchaseLinkedSavingsRate.available) {
+    notes.push('Returns and price adjustments are matched to items by item number only; they are not linked to a specific purchase. Return and adjustment figures are shown as a share of observed spend, not as true return or savings rates.')
+  }
+  const conf = inflation.summary.latestYearConfidence
+  if (conf === null || conf === 'insufficient') notes.push('There is not enough repeat-price data for a meaningful personal inflation estimate.')
+  else if (conf === 'low-coverage') notes.push('Personal inflation is shown, but the matched items cover too little of your spending to call it reliable.')
   if (source?.excludedTombstonedRecords) {
     notes.push(`${source.excludedTombstonedRecords} cloud record(s) no longer on the iPhone are kept as history but not included here.`)
   }

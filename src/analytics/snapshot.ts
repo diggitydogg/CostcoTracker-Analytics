@@ -56,7 +56,7 @@ export function buildAnalyticsSnapshot(data: AnalyticsExportV1, options: Analyti
   const adjustments = computeAdjustments(index, items, gross, thresholds.topN)
   const warehouses = computeWarehouses(index)
   const categories = computeCategories(items, gross, thresholds.topN)
-  const quality = computeQuality(index, gross, categories, returns, inflation, warehouses, options.source ?? null)
+  const quality = computeQuality(index, gross, categories, returns, adjustments, inflation, warehouses, options.source ?? null)
   return {
     asOf: index.asOf,
     currency: data.currency,

@@ -34,7 +34,7 @@ describe('data quality', () => {
     expect(q.uncategorized.itemCount).toBe(4) // WIDGET XL and three generic synthetic descriptions
     expect(q.firstDate).toBe('2024-01-01')
     expect(q.lastDate).toBe('2024-01-08')
-    expect(q.inflation.sufficientData).toBe(false)
+    expect(q.inflation.latestYearConfidence).toBeNull()
 
     const text = q.limitations.join('\n')
     expect(text).toMatch(/merchandise only/)

@@ -34,6 +34,7 @@ There is exactly one analytics implementation.
 | `prices.ts` | Per-item price history and volatility |
 | `inflation.ts` | Personal inflation (matched-item and weighted basket) |
 | `returns.ts`, `adjustments.ts` | Returns and price adjustments |
+| `linkage.ts` | Whether returns/adjustments link to specific purchases (purchase-linked rate availability) |
 | `warehouses.ts` | Warehouse and channel grouping |
 | `categories/` | `taxonomy.ts` (data), `rules.ts` (data), `engine.ts` (matcher and overrides), `analytics.ts` (spend by category) |
 | `quality.ts` | Coverage and limitations |
@@ -137,15 +138,27 @@ s_i(t) = Σ lineTotalCents of those lines
 
 **Index.** I(first) = 100 and I(b) = I(a) × L. A link with no usable matched items **breaks the chain**: later values are `null`, not guessed. Links that span gaps compare the two observed periods directly.
 
-**Coverage and reliability.**
+**Coverage and confidence.** Calculation availability is separate from confidence.
 - Coverage = (Σ_M s(a) + Σ_M s(b)) / (all item spend in a and b).
-- A link is **reliable** only with ≥ 5 matched items **and** coverage ≥ 5%.
+- Each link's relatives and index values are reported whenever they are mathematically defined: Jevons with ≥ 1 matched item, Törnqvist with ≥ 5. A low confidence never hides the number.
+- Each link also carries `matchedItems`, `spendCoverage` and a `confidence`:
+
+| `confidence` | Rule (defaults in `config.ts`) |
+|---|---|
+| `insufficient` | Fewer than `inflationMinMatchedItems` (5) matched items, or no spend to measure coverage |
+| `low-coverage` | Enough matched items, but coverage < `inflationReliableMinSpendCoverage` (**20%**) |
+| `reliable` | ≥ 5 matched items **and** coverage ≥ 20% |
+
+- A chained index is only as strong as its weakest link. Each period carries `chainConfidence`, the weakest confidence of the links leading to it.
+- Series report `linksByConfidence` counts.
 
 **Summary.**
 - The latest year-over-year link.
 - The cumulative change since the first year.
 - The annualized rate: (1 + cumulative)^(1 / calendar years elapsed) − 1.
-- `sufficientData`, which is false unless the latest yearly link is reliable, plus plain-language reasons.
+- `latestYearConfidence`: the confidence of the latest yearly link.
+- `cumulativeConfidence`: the weakest yearly link, which applies to the cumulative and annualized figures.
+- `reasons`: plain-language explanations (with counts and coverage) whenever confidence is below `reliable`.
 
 **Limitations:**
 - Unit prices are net of instant savings, so a sale lowers the observed price.
@@ -157,16 +170,20 @@ s_i(t) = Σ lineTotalCents of those lines
 ## Returns
 - **Totals:** count, quantity, recorded merchandise amount, returns without an amount, and distinct return transactions.
 - **Breakdowns:** by month and year, with an undated bucket. Items are ranked by count and by amount.
-- **Return rates** (only where a denominator is defensible):
-  - **Dollar rate:** Σ recorded merchandise returned ÷ gross purchase spend.
-  - **Unit rate:** returned quantity ÷ purchased quantity, over items purchased in the data.
-  - **Per item:** returned ÷ purchased quantity, flagged when it exceeds 1 (returns of purchases from before the data). It is `null` for items never purchased in the data.
+- **Observed ratios, not return rates.** Returns are not linked to the purchase they came from (`sourcePurchaseId` is null). A return in the data may be for a purchase made before the data begins, so these are descriptive ratios over the observed dataset, not causal, purchase-linked return rates. They can exceed 100%.
+  - **`observedReturnValueRatio`:** Σ recorded merchandise returned ÷ observed gross purchase spend. Dashboard label: "Returns as % of observed spend", never "Return rate".
+  - **`observedUnitReturnRatio`:** returned quantity ÷ purchased quantity, over item numbers seen in both.
+  - **Per item `observedUnitReturnRatio`:** returned ÷ purchased quantity, flagged when it exceeds 1 (proof of returns of purchases from before the data). It is `null` for items never purchased in the data.
+- **`purchaseLinkedReturnRate`:** `{ available: false, linkedRecords, unlinkedRecords, reason }` unless **every** return has a `sourcePurchaseId` found in the data. Only then is it `available: true`, with `rate` = Σ linked return amounts ÷ Σ baskets of the linked purchases. Partial linkage stays unavailable. With today's exports it is always unavailable.
 - **Time-to-return:** only for returns with an actual `sourcePurchaseId`. The iOS exporter always sends null, so it reports `available: false` with the reason. Nothing is inferred.
 
 ## Price adjustments
 - **Totals:** count, total recovered, average, largest, by month and year, and items ranked by count and by amount.
-- **Overall savings rate:** Σ adjustments ÷ gross spend.
-- **Adjusted-items savings rate:** adjustments on items purchased in the data ÷ spend on those items.
+- **Observed ratios, not savings rates.** Adjustments are not linked to the purchase they adjust (`sourcePurchaseId` is null):
+  - **`observedAdjustmentValueRatio`:** Σ adjustments ÷ observed gross spend. Dashboard label: "Price adjustments as % of observed spend".
+  - **`observedAdjustedItemsValueRatio`:** adjustments on item numbers purchased in the data ÷ observed spend on those item numbers.
+  - **Per item `observedValueRatio`:** item adjustments ÷ item observed spend.
+- **`purchaseLinkedSavingsRate`:** the same availability rule as for returns; unavailable with today's exports.
 - `transactionTotalCents` is never summed.
 
 ## Warehouses and channels
@@ -215,7 +232,7 @@ s_i(t) = Σ lineTotalCents of those lines
 - receipts by source, `WHSE_` receipts, and placeholder or unknown warehouses;
 - the uncategorized share;
 - items returned in excess of purchases;
-- inflation coverage;
+- inflation link counts by confidence and the latest yearly confidence;
 - tombstoned cloud records that were excluded.
 
 `limitations[]` holds plain-language notes that apply to **this** dataset only.

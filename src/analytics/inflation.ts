@@ -25,8 +25,16 @@
  * two observed periods directly.
  *
  * Coverage of a link = (Σ_M s(a) + Σ_M s(b)) / (all item spend in a and b).
- * A link is "reliable" only with ≥ minMatchedItems matched items AND coverage
- * ≥ minSpendCoverage. Annualized rates use calendar years elapsed.
+ *
+ * Calculation availability is separate from confidence. Every link reports its
+ * index whenever it is mathematically defined (≥ 1 matched item for Jevons,
+ * ≥ weightedMinItems for Törnqvist), plus a confidence:
+ *   - "insufficient":  fewer than minMatchedItems matched items;
+ *   - "low-coverage":  enough matched items, but coverage < reliableMinSpendCoverage;
+ *   - "reliable":      enough matched items AND coverage ≥ reliableMinSpendCoverage.
+ * A chained index is only as strong as its weakest link, so each period also
+ * carries the weakest confidence of the links leading to it.
+ * Annualized rates use calendar years elapsed.
  *
  * Limitations: unit prices are net of instant savings (a sale lowers the
  * observed price); pack-size changes under one item number are only caught by
@@ -39,6 +47,20 @@ import type { AnalyticsIndex } from './model'
 import { geometricMean, ratio } from './stats'
 
 export type InflationGranularity = 'year' | 'month'
+
+/** Ordered weakest → strongest. */
+export const INFLATION_CONFIDENCE_LEVELS = ['insufficient', 'low-coverage', 'reliable'] as const
+export type InflationConfidence = (typeof INFLATION_CONFIDENCE_LEVELS)[number]
+
+export function weakestConfidence(levels: readonly InflationConfidence[]): InflationConfidence | null {
+  if (levels.length === 0) return null
+  return INFLATION_CONFIDENCE_LEVELS[Math.min(...levels.map((l) => INFLATION_CONFIDENCE_LEVELS.indexOf(l)))]!
+}
+
+export function linkConfidence(matchedItems: number, spendCoverage: number | null, t: AnalyticsThresholds): InflationConfidence {
+  if (matchedItems < t.inflationMinMatchedItems || spendCoverage === null) return 'insufficient'
+  return spendCoverage >= t.inflationReliableMinSpendCoverage ? 'reliable' : 'low-coverage'
+}
 
 export type InflationLinkItem = {
   itemNumber: string
@@ -62,17 +84,24 @@ export type InflationLink = {
   weightedChange: number | null
   /** Share of the two periods' item spend represented by the matched items. */
   spendCoverage: number | null
-  reliable: boolean
+  /** Confidence in this link; the relatives above are reported regardless when defined. */
+  confidence: InflationConfidence
   items: InflationLinkItem[]
 }
 
-export type InflationPeriod = { period: string; simpleIndex: number | null; weightedIndex: number | null }
+export type InflationPeriod = {
+  period: string
+  simpleIndex: number | null
+  weightedIndex: number | null
+  /** Weakest confidence among the links chained to reach this period; null for the base period. */
+  chainConfidence: InflationConfidence | null
+}
 
 export type InflationSeries = {
   granularity: InflationGranularity
   periods: InflationPeriod[]
   links: InflationLink[]
-  reliableLinks: number
+  linksByConfidence: Record<InflationConfidence, number>
 }
 
 export type InflationAnalytics = {
@@ -88,8 +117,11 @@ export type InflationAnalytics = {
     cumulativeWeightedChange: number | null
     annualizedSimpleChange: number | null
     annualizedWeightedChange: number | null
-    /** False when the latest yearly link is missing or not reliable. */
-    sufficientData: boolean
+    /** Confidence of the latest yearly link (null without two years of data). */
+    latestYearConfidence: InflationConfidence | null
+    /** Weakest confidence across all yearly links (applies to the cumulative/annualized figures). */
+    cumulativeConfidence: InflationConfidence | null
+    /** Plain-language explanation whenever confidence is below "reliable". */
     reasons: string[]
   }
 }
@@ -168,7 +200,7 @@ export function inflationSeries(
       simpleChange: simple === null ? null : simple - 1,
       weightedChange: weighted === null ? null : weighted - 1,
       spendCoverage: coverage,
-      reliable: matched.length >= t.inflationMinMatchedItems && coverage !== null && coverage >= t.inflationMinSpendCoverage,
+      confidence: linkConfidence(matched.length, coverage, t),
       items: matched.map((m, i) => ({
         itemNumber: m.itemNumber,
         fromPriceCents: m.pa.price,
@@ -179,7 +211,7 @@ export function inflationSeries(
     })
   }
 
-  const series: InflationPeriod[] = periods.map((period) => ({ period, simpleIndex: null, weightedIndex: null }))
+  const series: InflationPeriod[] = periods.map((period) => ({ period, simpleIndex: null, weightedIndex: null, chainConfidence: null }))
   if (series.length > 0) {
     series[0]!.simpleIndex = 100
     series[0]!.weightedIndex = 100
@@ -190,9 +222,12 @@ export function inflationSeries(
     series[k]!.simpleIndex = prev.simpleIndex !== null && link.simpleRelative !== null ? prev.simpleIndex * link.simpleRelative : null
     series[k]!.weightedIndex =
       prev.weightedIndex !== null && link.weightedRelative !== null ? prev.weightedIndex * link.weightedRelative : null
+    series[k]!.chainConfidence = weakestConfidence(links.slice(0, k).map((l) => l.confidence))
   }
 
-  return { granularity, periods: series, links, reliableLinks: links.filter((l) => l.reliable).length }
+  const linksByConfidence = { insufficient: 0, 'low-coverage': 0, reliable: 0 }
+  for (const l of links) linksByConfidence[l.confidence] += 1
+  return { granularity, periods: series, links, linksByConfidence }
 }
 
 export function computeInflation(index: AnalyticsIndex, t: AnalyticsThresholds): InflationAnalytics {
@@ -219,11 +254,16 @@ export function computeInflation(index: AnalyticsIndex, t: AnalyticsThresholds):
 
   const reasons: string[] = []
   if (yearly.periods.length < 2) reasons.push('Fewer than two years of dated, priced purchases.')
-  if (latestYear && latestYear.matchedItems < t.inflationMinMatchedItems) {
-    reasons.push(`Only ${latestYear.matchedItems} item(s) were bought with a recorded price in both ${latestYear.from} and ${latestYear.to}; at least ${t.inflationMinMatchedItems} are needed.`)
+  const pct = (x: number) => `${Math.round(x * 1000) / 10}%`
+  if (latestYear?.confidence === 'insufficient') {
+    reasons.push(`Insufficient: only ${latestYear.matchedItems} item(s) were bought with a recorded price in both ${latestYear.from} and ${latestYear.to}; at least ${t.inflationMinMatchedItems} are needed for a meaningful comparison.`)
   }
-  if (latestYear && latestYear.spendCoverage !== null && latestYear.spendCoverage < t.inflationMinSpendCoverage) {
-    reasons.push('The matched items represent too small a share of spending to be representative.')
+  if (latestYear?.confidence === 'low-coverage' && latestYear.spendCoverage !== null) {
+    reasons.push(`Low coverage: the ${latestYear.matchedItems} matched items represent ${pct(latestYear.spendCoverage)} of ${latestYear.from}–${latestYear.to} item spend; at least ${pct(t.inflationReliableMinSpendCoverage)} is needed to call it reliable.`)
+  }
+  const cumulativeConfidence = weakestConfidence(yearly.links.map((l) => l.confidence))
+  if (yearly.links.length > 1 && cumulativeConfidence !== 'reliable') {
+    reasons.push('At least one earlier year-to-year link is not reliable, so the cumulative and annualized figures carry the same limitation.')
   }
   if (latestYear && latestYear.weightedRelative === null) {
     reasons.push('Not enough matched items for the weighted personal-basket index.')
@@ -241,7 +281,8 @@ export function computeInflation(index: AnalyticsIndex, t: AnalyticsThresholds):
       cumulativeWeightedChange: cumulativeWeighted,
       annualizedSimpleChange: annualize(cumulativeSimple),
       annualizedWeightedChange: annualize(cumulativeWeighted),
-      sufficientData: latestYear !== null && latestYear.reliable,
+      latestYearConfidence: latestYear?.confidence ?? null,
+      cumulativeConfidence,
       reasons,
     },
   }

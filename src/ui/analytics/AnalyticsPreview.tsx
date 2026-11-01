@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
-import { buildAnalyticsSnapshot, type DatasetSourceInfo } from '../../analytics'
+import { buildAnalyticsSnapshot, type DatasetSourceInfo, type InflationConfidence } from '../../analytics'
 import type { AnalyticsExportV1 } from '../../domain/export/v1'
 import { days, money, percent, share } from './format'
 
@@ -55,10 +55,11 @@ export function AnalyticsPreview({ data, source }: { data: AnalyticsExportV1; so
                 ['Weighted personal basket', percent(latest.weightedChange)],
                 ['Items compared', String(latest.matchedItems)],
                 ['Share of spend represented', share(latest.spendCoverage)],
+                ['Confidence', CONFIDENCE_LABEL[latest.confidence]],
               ]}
             />
-            {!s.inflation.summary.sufficientData && (
-              <p className="mt-2 text-sm text-amber-800">Not enough repeat-price data to call this reliable. {s.inflation.summary.reasons.join(' ')}</p>
+            {s.inflation.summary.reasons.length > 0 && (
+              <p className="mt-2 text-sm text-amber-800">{s.inflation.summary.reasons.join(' ')}</p>
             )}
           </>
         ) : (
@@ -101,8 +102,9 @@ export function AnalyticsPreview({ data, source }: { data: AnalyticsExportV1; so
         <Facts
           facts={[
             ['Returns', `${s.returns.count} (${money(s.returns.amountCents)} recorded)`],
-            ['Dollar return rate', share(s.returns.dollarReturnRate)],
+            ['Returns as % of observed spend', share(s.returns.observedReturnValueRatio)],
             ['Price adjustments', `${s.adjustments.count} (${money(s.adjustments.totalCents)})`],
+            ['Adjustments as % of observed spend', share(s.adjustments.observedAdjustmentValueRatio)],
             ['Online share of spend', share(s.warehouses.channels.online.spendShare)],
             ['Warehouses / sources', String(s.warehouses.groups.length)],
           ]}
@@ -118,6 +120,12 @@ export function AnalyticsPreview({ data, source }: { data: AnalyticsExportV1; so
       </Block>
     </div>
   )
+}
+
+const CONFIDENCE_LABEL: Record<InflationConfidence, string> = {
+  insufficient: 'Insufficient data',
+  'low-coverage': 'Low coverage',
+  reliable: 'Reliable',
 }
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
