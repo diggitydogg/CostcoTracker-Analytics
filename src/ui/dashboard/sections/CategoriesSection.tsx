@@ -2,13 +2,14 @@ import { useMemo, useState } from 'react'
 import { categoryLabel, categoryTrends, type CategoryId } from '../../../analytics'
 import { SERIES } from '../charts/palette'
 import { useDashboard } from '../context'
+import { AiSuggestionsPanel } from './AiSuggestionsPanel'
 import { count, money, moneyWhole, share } from '../format'
 import { Badge, BarList, DrillLink, Panel, TableWrap, td, tdNum, th, thNum } from '../ui'
 
 const TREND_ROWS = 8
 
 export function CategoriesSection() {
-  const { s, open } = useDashboard()
+  const { s, open, ai } = useDashboard()
   const cats = s.categories.categories
   const [selected, setSelected] = useState<CategoryId | null>(cats[0]?.categoryId ?? null)
   const current = cats.find((c) => c.categoryId === selected) ?? cats[0] ?? null
@@ -130,9 +131,11 @@ export function CategoriesSection() {
         </Panel>
       )}
 
+      <AiSuggestionsPanel />
+
       <Panel
         title="Uncategorized items"
-        subtitle={`${count(s.categories.uncategorized.itemCount)} items, ${share(s.categories.uncategorized.spendShare)} of spend. Open an item to choose its category; your choice is saved in this browser.`}
+        subtitle={`${count(s.categories.uncategorized.itemCount)} items, ${share(s.categories.uncategorized.spendShare)} of spend. Open an item to choose its category; your choice is saved in this browser.${ai ? '' : ' AI category suggestions are available when you use the cloud dashboard.'}`}
       >
         {uncategorized.length === 0 ? (
           <p className="text-sm text-slate-600">Every purchased item has a category.</p>

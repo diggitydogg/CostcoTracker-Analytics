@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 import type { AnalyticsSnapshot, CategoryOverride, CategoryOverrides, PurchaseLine } from '../../analytics'
 import type { PriceAdjustment, Return } from '../../domain/export/v1'
+import type { SuggestionSession } from './useSuggestionSession'
 
 /** What the drill-down drawer can show. Everything is addressed by opaque IDs. */
 export type Drill =
@@ -39,6 +40,8 @@ export type DashboardContextValue = {
   overrides: OverridesState
   /** Today's date (YYYY-MM-DD), used only for "days ago" wording. */
   today: string
+  /** Optional AI category suggestions (cloud mode only); null when unavailable. */
+  ai: SuggestionSession | null
 }
 
 export const DashboardContext = createContext<DashboardContextValue | null>(null)

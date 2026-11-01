@@ -29,15 +29,25 @@ import {
 } from './auth'
 import type { SqlDatabase } from './db'
 import { exportMeta, exportPage } from './exportData'
+import { defaultSuggestionLimiter, suggestCategories, type AiBinding } from './ai/categorySuggest'
+import { SUGGEST_LIMITS, suggestRequestSchema } from '../src/analytics/categories/suggestProtocol'
 import { ApiError, errorResponse, json, parseWith, readJson } from './http'
 import { abortRun, applyBatch, completeRun, confirmRemovals, getRun, listRuns, startRun } from './sync'
 
 export type AppEnv = {
   /** Hex SHA-256 of the owner access key (`npm run auth:generate-key`). */
   OWNER_ACCESS_KEY_SHA256?: string
+  /** Cloudflare Workers AI binding (optional; only AI category suggestions use it). */
+  AI?: AiBinding
 }
 
-export type AppDeps = { db: SqlDatabase; env: AppEnv; now?: () => Date }
+export type AppDeps = {
+  db: SqlDatabase
+  env: AppEnv
+  now?: () => Date
+  /** Limits AI suggestion requests; defaults to one shared per isolate. */
+  aiLimiter?: { check(now: Date): void }
+}
 
 const SMALL_BODY = 4 * 1024
 export const SYNC_REQUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -51,6 +61,7 @@ type Ctx = {
   db: SqlDatabase
   env: AppEnv
   now: Date
+  aiLimiter: { check(now: Date): void }
 }
 type Route = { method: string; pattern: RegExp; access: Access; handle: (ctx: Ctx) => Promise<Response> }
 
@@ -337,6 +348,20 @@ const routes: Route[] = [
     handle: async (ctx) => json(await confirmRemovals(ctx.db, owner(ctx), ctx.params[0]!, ctx.now)),
   },
 
+  // ── AI category suggestions (owner) ──────────────────────────────────────
+  // Proposals only: nothing is stored, and nothing changes until the owner
+  // accepts a suggestion in the dashboard (as a browser-side override).
+  {
+    method: 'POST',
+    pattern: /^\/api\/categories\/suggest$/,
+    access: 'owner',
+    handle: async ({ request, env, now, aiLimiter }) => {
+      const body = parseWith(suggestRequestSchema, await readJson(request, SUGGEST_LIMITS.maxRequestBytes))
+      aiLimiter.check(now)
+      return json(await suggestCategories(env.AI, body.items))
+    },
+  },
+
   // ── Export (owner) ────────────────────────────────────────────────────────
   {
     method: 'GET',
@@ -383,7 +408,7 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
       const principal = await resolvePrincipal(deps.db, request, now)
       authorize(route, principal, request)
       const params = route.pattern.exec(url.pathname)!.slice(1)
-      return await route.handle({ request, url, params, principal, db: deps.db, env: deps.env, now })
+      return await route.handle({ request, url, params, principal, db: deps.db, env: deps.env, now, aiLimiter: deps.aiLimiter ?? defaultSuggestionLimiter })
     } catch (error) {
       if (error instanceof ApiError) return errorResponse(error)
       // Never log request bodies or record values; the error class/message is enough.

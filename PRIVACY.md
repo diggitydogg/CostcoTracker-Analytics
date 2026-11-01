@@ -29,7 +29,7 @@ The application must not transmit analytics data to:
 - an AI provider
 - any party other than the owner's own deployment
 
-This holds unless a future feature explicitly asks for permission and clearly describes the exact data being sent.
+This holds unless a feature explicitly asks for permission and clearly describes the exact data being sent. The only such feature is the optional AI category suggestions, described below.
 
 The browser enforces this with a Content Security Policy of `connect-src 'self'`. The page can only call the owner's own same-origin API, never a third-party origin. There are no analytics, telemetry, web fonts or CDNs.
 
@@ -50,15 +50,15 @@ No behavioral analytics or advertising trackers. Server logs contain only route,
 
 ## AI categorization
 
-Future AI-assisted categorization must be optional.
+AI category suggestions are **optional**, available only in cloud mode, and run only when the owner clicks **Suggest categories with AI**. The panel states exactly what is sent before the click. They use **Cloudflare Workers AI** through the owner's own Cloudflare account, the same provider that already hosts the deployment. No other AI provider or API key is involved, and the browser still only talks to its own origin.
 
-Preferred minimal request payload:
+Request payload (enforced by a strict schema and tests):
 - item number
-- item description
+- up to 3 item description variants (cleaned, at most 120 characters each)
 
-Do not send receipt/order number, barcode, purchase date, warehouse, price paid, quantity, full receipt, or account/session information.
+Never sent: receipt/order IDs or numbers, barcodes, purchase dates, warehouse or location, prices, spend, quantities, returns or adjustment amounts, other receipt contents, or any account, session, device or Costco credential data.
 
-AI output must be treated as a suggested category, not source truth.
+AI output is a suggested category, never source truth. Nothing changes until the owner accepts or edits a suggestion, which then becomes an ordinary browser-side category override. Suggestions are not stored in the cloud. Details: `docs/AI_CATEGORY_SUGGESTIONS.md`.
 
 ## Demo / testing data
 

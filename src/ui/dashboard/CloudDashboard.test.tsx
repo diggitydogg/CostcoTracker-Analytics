@@ -164,3 +164,61 @@ describe('cloud dashboard', () => {
     expect(exportCalls(h, before).filter((p) => p !== '/api/export/meta')).toEqual(FULL_LOAD.slice(1))
   })
 })
+
+describe('cloud AI category suggestions (mocked Workers AI)', () => {
+  function aiMock() {
+    const inputs: Record<string, unknown>[] = []
+    const ai = {
+      run: vi.fn(async (_model: string, input: Record<string, unknown>) => {
+        inputs.push(input)
+        return { response: { suggestions: [{ itemNumber: '9000006', categoryId: 'electronics', subcategoryId: null, confidence: 0.9, reason: 'Anker Solix power station' }] } }
+      }),
+    }
+    return { ai, inputs }
+  }
+  const withUncategorized = () => fixtureData((d) => (d.items.find((i) => i.itemNumber === '9000006')!.description = 'ANKERSOLIX'))
+
+  it('suggests through the owner endpoint, sends only item numbers/descriptions, and keeps the dataset cache', async () => {
+    const { ai, inputs } = aiMock()
+    const h = await createCloudHarness({ ai })
+    const device = await enrollTestDevice(h)
+    await h.device.sync(device.deviceToken, withUncategorized())
+    const user = userEvent.setup()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    const dash = await screen.findByTestId('dashboard')
+    await user.click(within(screen.getByRole('navigation', { name: 'Dashboard sections' })).getByRole('button', { name: 'Categories' }))
+    expect(ai.run).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Suggest categories with AI' }))
+    expect(await screen.findByTestId('suggestion-9000006')).toHaveTextContent('Electronics')
+    expect(h.requests.filter((r) => r.path === '/api/categories/suggest').map((r) => r.method)).toEqual(['POST'])
+    // The model saw exactly this data — nothing about purchases, stores, dates or IDs.
+    const user0 = (inputs[0]!.messages as { role: string; content: string }[])[1]!.content
+    expect(JSON.parse(user0.slice(user0.indexOf('\n') + 1))).toEqual([{ itemNumber: '9000006', descriptions: ['ANKERSOLIX'] }])
+    const everything = JSON.stringify(inputs)
+    for (const f of fixtureData().receipts) expect(everything).not.toContain(f.id)
+    expect(everything).not.toMatch(/2026-|SYNTHETIC|warehouse|lineTotal|unitPrice/i)
+
+    // Switching cloud tabs and coming back neither re-downloads the export nor re-asks the AI.
+    const before = h.requests.length
+    await openTab(user, 'Sync')
+    await openTab(user, 'Dashboard')
+    await screen.findByTestId('dashboard')
+    expect(exportCalls(h, before)).toEqual([])
+    expect(h.requests.slice(before).some((r) => r.path === '/api/categories/suggest')).toBe(false)
+    expect(within(screen.getByTestId('dashboard')).getByRole('button', { name: 'Reload dashboard' })).toBeInTheDocument()
+    void dash
+  })
+
+  it('explains when Workers AI is not configured and leaves the dashboard usable', async () => {
+    const h = await createCloudHarness()
+    const device = await enrollTestDevice(h)
+    await h.device.sync(device.deviceToken, withUncategorized())
+    const user = userEvent.setup()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    await screen.findByTestId('dashboard')
+    await user.click(within(screen.getByRole('navigation', { name: 'Dashboard sections' })).getByRole('button', { name: 'Categories' }))
+    await user.click(screen.getByRole('button', { name: 'Suggest categories with AI' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('AI suggestions are not set up on this cloud')
+    expect(screen.getByRole('region', { name: 'Spend by category' })).toBeInTheDocument()
+  })
+})

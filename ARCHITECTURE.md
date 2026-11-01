@@ -27,13 +27,14 @@ src/
     dashboard/         Analytics dashboard shared by cloud and local data (docs/DASHBOARD.md)
   fixtures/          Synthetic data only
   test/              Test setup and fixture helpers
-server/              Portable API handler (auth, sync, export) over a 4-method SQL interface
+server/              Portable API handler (auth, sync, export, optional AI category suggestions) over a 4-method SQL interface
+  ai/                  Workers AI category suggestions: model config (config.ts), prompt, output validation
   adapters/            d1.ts (Cloudflare) and nodeSqlite.ts (tests / self-hosting)
 functions/api/       Cloudflare Pages Function entry (the only Cloudflare-specific file)
 migrations/          D1 / SQLite schema
 ```
 
-Dependencies point inward: `ui -> app -> persistence -> domain`, `ui -> analytics -> domain` and `server -> domain`. Cloud and local data both reach the analytics engine as the same validated `AnalyticsExportV1`. Analytics are pure, tested functions in `src/analytics/`, never computed inside components.
+Dependencies point inward: `ui -> app -> persistence -> domain`, `ui -> analytics -> domain` and `server -> domain`. Cloud and local data both reach the analytics engine as the same validated `AnalyticsExportV1`. Analytics are pure, tested functions in `src/analytics/`, never computed inside components. The server also imports the pure category taxonomy and the AI suggestion protocol (`src/analytics/categories/taxonomy.ts`, `suggestProtocol.ts`) so the model can only answer with the app's categories. AI suggestions are optional, owner-triggered and reviewed: see `docs/AI_CATEGORY_SUGGESTIONS.md`.
 
 ## Import pipeline (`src/domain/import/importExport.ts`)
 

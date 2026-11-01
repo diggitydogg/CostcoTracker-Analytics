@@ -5,6 +5,7 @@
  * - Normalizes failures into `CloudApiError` with a stable `code`. Server error
  *   messages are written to never echo purchase data; the client adds none.
  */
+import type { SuggestRequestItem } from '../analytics/categories/suggestProtocol'
 import type { Item, PriceAdjustment, Receipt, Return } from '../domain/export/v1'
 import type { SyncBatch } from '../domain/sync/protocol'
 
@@ -180,6 +181,8 @@ export function createCloudApi(fetchImpl: FetchLike = (input, init) => fetch(inp
     confirmRemovals: (runId: string) => request<{ run: SyncRun }>('POST', `/api/sync/runs/${runId}/confirm-removals`),
 
     exportMeta: () => request<ExportMeta>('GET', '/api/export/meta'),
+    /** Optional AI category suggestions: sends only item numbers and descriptions (see suggestProtocol.ts). */
+    suggestCategories: (items: SuggestRequestItem[]) => request<unknown>('POST', '/api/categories/suggest', { items }),
     exportPage: <C extends ExportCollectionName>(collection: C, after: string | null, limit = 1000) => {
       const qs = new URLSearchParams({ limit: String(limit) })
       if (after !== null) qs.set('after', after)

@@ -211,3 +211,12 @@ export function describeBreak(b: ChainBreak, label: (p: string) => string = (p) 
     ? `no item was bought with a recorded price in both ${label(b.from)} and ${label(b.to)}`
     : `too few items were bought in both ${label(b.from)} and ${label(b.to)} for the weighted index`
 }
+
+// ---------------------------------------------------------------- AI suggestions
+
+/** Items the AI may be asked about: automatically Uncategorized (no rule matched, no owner choice). Highest spend first. */
+export function aiCandidates(items: readonly ItemStats[]): ItemStats[] {
+  return items
+    .filter((i) => i.category.source === 'fallback')
+    .sort((a, b) => b.totalSpentCents - a.totalSpentCents || (a.itemNumber < b.itemNumber ? -1 : 1))
+}

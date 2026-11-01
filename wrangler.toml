@@ -11,3 +11,15 @@ database_name = "costcotracker-analytics"
 # Local development (`npm run dev:cloud`) does not need a real ID.
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
+
+# Workers AI, used ONLY for optional, owner-reviewed category suggestions
+# (POST /api/categories/suggest). The model is chosen in server/ai/config.ts.
+# This entry documents the binding name and is used by local tooling
+# (`wrangler pages dev`). It is NOT relied on to provision production:
+# configure the binding on the Pages project in the Cloudflare dashboard
+# (Workers & Pages → project → Settings → Bindings → Add binding → Workers AI,
+# name "AI"), then redeploy. Without it, the endpoint answers 503
+# ai_not_configured and the rest of the dashboard works normally.
+# See docs/AI_CATEGORY_SUGGESTIONS.md.
+[ai]
+binding = "AI"
