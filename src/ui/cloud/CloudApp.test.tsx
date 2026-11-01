@@ -72,6 +72,8 @@ describe('sign-in and session', () => {
     const h = await createCloudHarness()
     const { user } = renderApp(h)
     await signInThroughUi(user)
+    expect(await screen.findByTestId('dashboard')).toBeInTheDocument() // the dashboard is the landing view
+    await openTab(user, 'Overview')
     expect(await screen.findByRole('heading', { name: 'Cloud status' })).toBeInTheDocument()
     expect(await screen.findByText('Connected')).toBeInTheDocument()
     expect(screen.getByText('Export version 1')).toBeInTheDocument()
@@ -83,7 +85,8 @@ describe('sign-in and session', () => {
   it('detects an existing session on load and skips the sign-in screen', async () => {
     const h = await createCloudHarness()
     await h.signIn()
-    renderApp(h)
+    const { user } = renderApp(h)
+    await openTab(user, 'Overview')
     expect(await screen.findByRole('heading', { name: 'Cloud status' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Access key')).not.toBeInTheDocument()
   })
@@ -92,6 +95,7 @@ describe('sign-in and session', () => {
     const h = await createCloudHarness()
     await h.signIn()
     const { user } = renderApp(h)
+    await openTab(user, 'Overview')
     await user.click(await screen.findByRole('button', { name: 'Sign out of this browser' }))
     expect(await screen.findByText('You are signed out.')).toBeInTheDocument()
     expect(h.hasSessionCookie()).toBe(false)
@@ -102,6 +106,7 @@ describe('sign-in and session', () => {
     const h = await createCloudHarness()
     await h.signIn()
     const { user } = renderApp(h)
+    await openTab(user, 'Overview')
     await user.click(await screen.findByRole('button', { name: 'Sign out everywhere' }))
     expect(screen.getByText(/This signs out every browser/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Sign out all browsers' }))
@@ -112,6 +117,7 @@ describe('sign-in and session', () => {
     const h = await createCloudHarness()
     await h.signIn()
     const { user } = renderApp(h)
+    await openTab(user, 'Overview')
     await screen.findByText('Connected')
     h.expireSessions()
     await user.click(screen.getByRole('button', { name: 'Refresh' }))
@@ -143,8 +149,12 @@ describe('cloud unavailable', () => {
   it('shows an error on the overview when the cloud fails, without leaving the page', async () => {
     const h = await createCloudHarness()
     await h.signIn()
-    h.failStatus((_, path) => path === '/api/export/meta', 500)
-    renderApp(h)
+    h.failStatus((_, path) => path === '/api/export/meta', 500, 10)
+    const { user } = renderApp(h)
+    // The dashboard (landing view) reports the failure in place…
+    expect(await screen.findByRole('alert')).toHaveTextContent('unexpected response (HTTP 500)')
+    // …and so does the overview.
+    await openTab(user, 'Overview')
     expect(await screen.findByRole('alert')).toHaveTextContent('unexpected response (HTTP 500)')
     expect(screen.getByRole('heading', { name: 'Cloud status' })).toBeInTheDocument()
   })
@@ -358,7 +368,8 @@ describe('cloud import', () => {
     expect(await screen.findByText('This instance stores USD data; got CAD.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Resume upload' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Cancel import' }))
-    expect(screen.queryByText('The upload did not finish')).not.toBeInTheDocument()
+    // Cancelling awaits the abort request before clearing the notice.
+    await waitFor(() => expect(screen.queryByText('The upload did not finish')).not.toBeInTheDocument())
   })
 })
 

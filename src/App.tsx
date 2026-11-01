@@ -24,7 +24,7 @@ export function App({
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
           <h1 className="text-lg font-semibold tracking-tight">CostcoTracker Analytics</h1>
           <nav aria-label="Data source">
             <ul className="flex gap-1 text-sm">
@@ -51,7 +51,7 @@ export function App({
       </header>
       {mode === 'cloud' ? (
         <>
-          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <main className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-6 sm:px-6 lg:px-8">
             <CloudApp
               {...(api ? { api } : {})}
               onOpenFile={() => setMode('file')}

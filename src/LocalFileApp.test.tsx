@@ -22,6 +22,13 @@ async function upload(user: ReturnType<typeof userEvent.setup>, file: File) {
   await user.upload(screen.getByLabelText(/choose export file/i), file)
 }
 
+/** The dashboard opens first after an import; switch to the import summary. */
+async function showSummary(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByTestId('dashboard')
+  await user.click(screen.getByRole('button', { name: 'Import summary' }))
+  return screen.findByRole('region', { name: /imported records/i })
+}
+
 async function hasSavedDatabase(factory: IDBFactory) {
   return (await factory.databases()).some((d) => d.name === DB_NAME)
 }
@@ -43,7 +50,7 @@ describe('App import flow', () => {
     await screen.findByLabelText(/choose export file/i)
     await upload(user, jsonFile(syntheticExportText()))
 
-    const summary = await screen.findByRole('region', { name: /imported records/i })
+    const summary = await showSummary(user)
     expect(within(summary).getByText('Items').nextSibling).toHaveTextContent('7')
     expect(within(summary).getByText('Receipts / orders', { selector: 'dt' }).nextSibling).toHaveTextContent('4')
     expect(screen.getByTestId('storage-status')).toHaveTextContent(/not saved/i)
@@ -83,13 +90,13 @@ describe('App import flow', () => {
     await screen.findByLabelText(/choose export file/i)
     await user.click(screen.getByRole('checkbox', { name: /remember this dataset/i }))
     await upload(user, jsonFile(syntheticExportText()))
-    await screen.findByRole('region', { name: /imported records/i })
+    await showSummary(user)
     expect(screen.getByTestId('storage-status')).toHaveTextContent('Saved on this device')
     unmount()
 
     // A new visit with the same browser storage.
     render(<LocalFileApp store={createDatasetStore(factory)} />)
-    expect(await screen.findByRole('region', { name: /imported records/i })).toBeInTheDocument()
+    expect(await showSummary(user)).toBeInTheDocument()
     expect(screen.getByTestId('storage-status')).toHaveTextContent('Saved on this device')
   })
 
@@ -98,7 +105,7 @@ describe('App import flow', () => {
     await screen.findByLabelText(/choose export file/i)
     await user.click(screen.getByRole('checkbox', { name: /remember this dataset/i }))
     await upload(user, jsonFile(syntheticExportText()))
-    await screen.findByRole('region', { name: /imported records/i })
+    await screen.findByTestId('dashboard')
     expect(await hasSavedDatabase(factory)).toBe(true)
 
     await user.click(screen.getByRole('button', { name: /forget imported data/i }))
@@ -114,11 +121,11 @@ describe('App import flow', () => {
     await screen.findByLabelText(/choose export file/i)
     await first.user.click(screen.getByRole('checkbox', { name: /remember this dataset/i }))
     await upload(first.user, jsonFile(syntheticExportText()))
-    await screen.findByRole('region', { name: /imported records/i })
+    await screen.findByTestId('dashboard')
 
     await first.user.click(screen.getByRole('button', { name: /import a different file/i }))
     await upload(first.user, jsonFile(syntheticExportText((d) => (d.items = []))))
-    await screen.findByRole('region', { name: /imported records/i })
+    await showSummary(first.user)
     expect(screen.getByTestId('storage-status')).toHaveTextContent(/not saved/i)
     expect(await hasSavedDatabase(factory)).toBe(false)
   })
@@ -163,7 +170,7 @@ describe('App import flow', () => {
     const { user } = await renderApp(null)
     expect(await screen.findByRole('checkbox', { name: /remember this dataset/i })).toBeDisabled()
     await upload(user, jsonFile(syntheticExportText()))
-    await screen.findByRole('region', { name: /imported records/i })
+    await screen.findByTestId('dashboard')
     expect(screen.getByTestId('storage-status')).toHaveTextContent(/storage unavailable/i)
   })
 })
