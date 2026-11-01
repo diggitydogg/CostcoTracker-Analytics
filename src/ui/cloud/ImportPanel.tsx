@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react'
 import { CloudApiError, type SyncRun } from '../../cloud/api'
 import { useCloud } from '../../cloud/CloudContext'
+import { useCloudDataset } from '../../cloud/CloudDatasetContext'
 import { UploadFailedError, planUpload, uploadDataset, type UploadPlan, type UploadProgress } from '../../cloud/uploadDataset'
 import type { AnalyticsExportV1 } from '../../domain/export/v1'
 import { MAX_IMPORT_BYTES, importExportText, tooLargeError, type ImportError } from '../../domain/import/importExport'
@@ -33,6 +34,7 @@ type Stage =
  */
 export function ImportPanel({ retryDelaysMs }: { retryDelaysMs?: number[] }) {
   const { api, handle } = useCloud()
+  const markDatasetStale = useCloudDataset()?.markStale
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [stage, setStage] = useState<Stage>({ kind: 'idle' })
@@ -90,6 +92,7 @@ export function ImportPanel({ retryDelaysMs }: { retryDelaysMs?: number[] }) {
         onProgress: (progress) => setStage({ kind: 'uploading', fileName, data, plan, progress }),
       })
       setStage({ kind: 'done', fileName, run })
+      markDatasetStale?.()
     } catch (e) {
       const cause = e instanceof UploadFailedError ? e.cause : e
       const message = handle(cause)

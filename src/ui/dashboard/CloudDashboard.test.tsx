@@ -6,7 +6,14 @@ import { App } from '../../App'
 import { createDatasetStore } from '../../persistence/datasetStore'
 import { LocalFileApp } from '../../LocalFileApp'
 import { createOverridesStore } from '../../persistence/overridesStore'
-import { createCloudHarness, enrollTestDevice, fixtureData } from '../../test/cloudHarness'
+import { ACCESS_KEY, createCloudHarness, enrollTestDevice, fixtureData } from '../../test/cloudHarness'
+import { syntheticExportText } from '../../test/fixtures'
+
+const exportCalls = (h: { requests: { path: string }[] }, from = 0) =>
+  h.requests.slice(from).filter((r) => r.path.startsWith('/api/export/')).map((r) => r.path.split('?')[0])
+const FULL_LOAD = ['/api/export/meta', '/api/export/receipts', '/api/export/items', '/api/export/returns', '/api/export/priceAdjustments']
+const openTab = async (user: ReturnType<typeof userEvent.setup>, name: string) =>
+  user.click(within(await screen.findByRole('navigation', { name: 'Cloud sections' })).getByRole('button', { name }))
 
 const options = () => ({ pollMs: 0, retryDelaysMs: [], saveFile: vi.fn(), overridesStore: createOverridesStore(new IDBFactory()), today: '2026-01-15' })
 
@@ -53,15 +60,94 @@ describe('cloud dashboard', () => {
     expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument()
   })
 
-  it('refreshes from the cloud on request', async () => {
+  it('reloads fresh cloud data only when asked, with a button that cannot be confused with a Costco refresh', async () => {
     const h = await createCloudHarness()
     await h.signIn()
     const user = userEvent.setup()
     render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
     const dash = await screen.findByTestId('dashboard')
-    const before = h.requests.filter((r) => r.path === '/api/export/meta').length
-    await user.click(within(dash).getByRole('button', { name: 'Refresh' }))
-    await waitFor(() => expect(h.requests.filter((r) => r.path === '/api/export/meta').length).toBe(before + 1))
-    expect(screen.getByTestId('dashboard')).toBeInTheDocument()
+    expect(within(dash).queryByRole('button', { name: /^Refresh/ })).not.toBeInTheDocument()
+    const before = h.requests.length
+    await user.click(within(dash).getByRole('button', { name: 'Reload dashboard' }))
+    await waitFor(() => expect(exportCalls(h, before)).toEqual(FULL_LOAD))
+    expect(await screen.findByTestId('dashboard')).toBeInTheDocument()
+    // Only D1 reads: no sync request (the iPhone/Costco refresh workflow) is created.
+    expect(h.requests.slice(before).every((r) => r.method === 'GET')).toBe(true)
+  })
+
+  it('keeps the dataset in memory across tab switches instead of downloading it again', async () => {
+    const h = await createCloudHarness()
+    const device = await enrollTestDevice(h)
+    await h.device.sync(device.deviceToken, fixtureData())
+    const user = userEvent.setup()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    const first = overviewNumbers(await screen.findByTestId('dashboard'))
+    expect(exportCalls(h)).toEqual(FULL_LOAD)
+
+    await openTab(user, 'Sync')
+    await screen.findByText('No refresh requests yet.')
+    await openTab(user, 'iPhones')
+    await openTab(user, 'Dashboard')
+    const again = await screen.findByTestId('dashboard')
+    expect(overviewNumbers(again)).toEqual(first)
+    // Still exactly one full load: returning to the dashboard made no export requests.
+    expect(exportCalls(h)).toEqual(FULL_LOAD)
+  })
+
+  it('marks the dashboard stale after a web import and reloads only on request', async () => {
+    const h = await createCloudHarness()
+    await h.signIn()
+    const user = userEvent.setup()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    await screen.findByText(/There is no purchase data yet/)
+    expect(exportCalls(h)).toEqual(FULL_LOAD)
+
+    await openTab(user, 'Import')
+    await user.upload(await screen.findByLabelText('Choose export file'), new File([syntheticExportText()], 'export.json', { type: 'application/json' }))
+    await user.click(await screen.findByRole('button', { name: 'Upload to cloud' }))
+    expect(await screen.findByText('Import complete')).toBeInTheDocument()
+
+    const before = h.requests.length
+    await openTab(user, 'Dashboard')
+    const banner = await screen.findByText('Your cloud has new data since this dashboard was loaded.')
+    expect(exportCalls(h, before)).toEqual([]) // no automatic re-download
+    await user.click(within(banner.parentElement!).getByRole('button', { name: 'Reload dashboard' }))
+    await waitFor(() => expect(exportCalls(h, before)).toEqual(FULL_LOAD))
+    expect(await screen.findByLabelText('Summary')).toBeInTheDocument()
+    expect(screen.queryByText('Your cloud has new data since this dashboard was loaded.')).not.toBeInTheDocument()
+  })
+
+  it('marks the dashboard stale when the overview sees a newer iPhone sync', async () => {
+    const h = await createCloudHarness()
+    const device = await enrollTestDevice(h)
+    const user = userEvent.setup()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    await screen.findByText(/There is no purchase data yet/)
+    await h.device.sync(device.deviceToken, fixtureData()) // the iPhone syncs after the dashboard loaded
+    await openTab(user, 'Overview')
+    await screen.findByText('Connected')
+    const before = h.requests.length
+    await openTab(user, 'Dashboard')
+    expect(await screen.findByText('Your cloud has new data since this dashboard was loaded.')).toBeInTheDocument()
+    expect(exportCalls(h, before)).toEqual([])
+  })
+
+  it('drops the in-memory dataset on sign-out', async () => {
+    const h = await createCloudHarness()
+    await h.signIn()
+    const user = userEvent.setup()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    await screen.findByTestId('dashboard')
+    await openTab(user, 'Overview')
+    await user.click(await screen.findByRole('button', { name: 'Sign out of this browser' }))
+    await screen.findByText('You are signed out.')
+    const before = h.requests.length
+    await user.type(screen.getByLabelText('Access key'), ACCESS_KEY)
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await openTab(user, 'Dashboard')
+    await screen.findByTestId('dashboard')
+    // Signing back in starts from nothing: the previous session's copy was not kept.
+    // (The Overview tab shown after sign-in makes its own meta request.)
+    expect(exportCalls(h, before).filter((p) => p !== '/api/export/meta')).toEqual(FULL_LOAD.slice(1))
   })
 })
