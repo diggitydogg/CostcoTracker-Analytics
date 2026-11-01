@@ -18,12 +18,13 @@ src/
     dataset.ts         LoadedDataset = validated export + app-generated import metadata
     summary.ts         Record counts shown after import (not analytics)
     sync/              Sync protocol schemas, canonical hashing, reconciliation planning (shared with server)
-  persistence/       IndexedDB storage for the local-file mode (D1 is canonical in cloud mode)
+  persistence/       IndexedDB (one app database): the local-file dataset and category overrides (D1 is canonical in cloud mode)
   app/               React hook orchestrating local import / remember / forget
   analytics/         Pure analytics engine: one snapshot from an Export V1 dataset (docs/ANALYTICS_ENGINE.md)
   cloud/             Typed same-origin API client, session hook, upload/backup workflows, cloud dataset loader
   ui/                Presentational components; no calculations
     cloud/             Cloud screens: sign-in, overview, sync, iPhones, import, backup
+    dashboard/         Analytics dashboard shared by cloud and local data (docs/DASHBOARD.md)
   fixtures/          Synthetic data only
   test/              Test setup and fixture helpers
 server/              Portable API handler (auth, sync, export) over a 4-method SQL interface

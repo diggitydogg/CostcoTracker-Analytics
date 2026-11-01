@@ -1,24 +1,21 @@
 import { useMemo, useState } from 'react'
 import type { LoadedDataset } from '../domain/dataset'
 import { summarizeImport } from '../domain/summary'
-import { AnalyticsPreview } from './analytics/AnalyticsPreview'
+import { LazyDashboard } from './dashboard/lazy'
 
 const LOCAL_SOURCE = { source: 'local-file' as const }
 
-type View = 'summary' | 'analytics' | 'details'
+type View = 'dashboard' | 'summary' | 'details'
 
 const VIEWS: { id: View; label: string }[] = [
+  { id: 'dashboard', label: 'Dashboard' },
   { id: 'summary', label: 'Import summary' },
-  { id: 'analytics', label: 'Analytics preview' },
   { id: 'details', label: 'Import details' },
 ]
 
-/**
- * Minimal shell proving that an import succeeded. Analytics dashboards are
- * intentionally out of scope for this task; navigation will grow later.
- */
+/** A loaded export file: the analytics dashboard plus the import summary and details. */
 export function DatasetShell({ dataset, onImportAnother }: { dataset: LoadedDataset; onImportAnother: () => void }) {
-  const [view, setView] = useState<View>('summary')
+  const [view, setView] = useState<View>('dashboard')
   const summary = useMemo(() => summarizeImport(dataset.data), [dataset.data])
 
   return (
@@ -55,10 +52,10 @@ export function DatasetShell({ dataset, onImportAnother }: { dataset: LoadedData
         </p>
       )}
 
-      {view === 'analytics' ? (
-        <AnalyticsPreview data={dataset.data} source={LOCAL_SOURCE} />
+      {view === 'dashboard' ? (
+        <LazyDashboard data={dataset.data} source={LOCAL_SOURCE} />
       ) : view === 'summary' ? (
-        <section aria-labelledby="summary-title" className="space-y-4">
+        <section aria-labelledby="summary-title" className="max-w-5xl space-y-4">
           <h2 id="summary-title" className="text-xl font-semibold">
             Imported records
           </h2>
@@ -96,7 +93,7 @@ export function DatasetShell({ dataset, onImportAnother }: { dataset: LoadedData
           </p>
         </section>
       ) : (
-        <section aria-labelledby="details-title" className="space-y-4">
+        <section aria-labelledby="details-title" className="max-w-5xl space-y-4">
           <h2 id="details-title" className="text-xl font-semibold">
             Import details
           </h2>

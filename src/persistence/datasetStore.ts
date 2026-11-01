@@ -3,8 +3,8 @@
  *
  * - Nothing is stored unless the user opts in.
  * - Exactly one dataset is kept, under a fixed key.
- * - `forgetLocalData()` deletes the whole database, so any future derived
- *   caches placed in it are removed too.
+ * - `forgetLocalData()` deletes the whole app database (appDb.ts), so other
+ *   on-device settings such as category overrides are removed too.
  * - Saved data is re-validated with the same importer on load; a corrupt or
  *   outdated record is reported, never silently patched.
  *
@@ -14,10 +14,10 @@
 import { z } from 'zod'
 import type { LoadedDataset } from '../domain/dataset'
 import { importExportValue, type ImportWarning } from '../domain/import/importExport'
+import { DATASET_STORE, DB_NAME, withAppStore } from './appDb'
 
-export const DB_NAME = 'costcotracker-analytics'
-const DB_VERSION = 1
-const STORE = 'dataset'
+export { DB_NAME } from './appDb'
+
 const CURRENT_KEY = 'current'
 /** Version of the stored record layout (independent of the export format version). */
 export const STORAGE_RECORD_VERSION = 1
@@ -64,21 +64,6 @@ export type DatasetStore = {
   forgetLocalData(): Promise<void>
 }
 
-function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'))
-  })
-}
-
-function transactionDone(tx: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve()
-    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'))
-    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'))
-  })
-}
-
 /**
  * @param factory IndexedDB implementation; defaults to the browser's. Pass
  *   `null` to model a browser without IndexedDB.
@@ -86,31 +71,8 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
 export function createDatasetStore(
   factory: IDBFactory | null = globalThis.indexedDB ?? null,
 ): DatasetStore {
-  function open(): Promise<IDBDatabase> {
-    if (!factory) return Promise.reject(new Error('IndexedDB is not available'))
-    const request = factory.open(DB_NAME, DB_VERSION)
-    request.onupgradeneeded = () => {
-      const db = request.result
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE)
-    }
-    return requestToPromise(request)
-  }
-
-  async function withStore<T>(
-    mode: IDBTransactionMode,
-    run: (store: IDBObjectStore) => IDBRequest<T>,
-  ): Promise<T> {
-    const db = await open()
-    try {
-      const tx = db.transaction(STORE, mode)
-      const result = requestToPromise(run(tx.objectStore(STORE)))
-      await transactionDone(tx)
-      return await result
-    } finally {
-      // Always close so a later deleteDatabase is never blocked by us.
-      db.close()
-    }
-  }
+  const withStore = <T,>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>) =>
+    withAppStore(factory, DATASET_STORE, mode, run)
 
   return {
     isAvailable: () => factory !== null,

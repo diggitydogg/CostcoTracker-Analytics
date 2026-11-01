@@ -36,7 +36,7 @@ There is exactly one analytics implementation.
 | `returns.ts`, `adjustments.ts` | Returns and price adjustments |
 | `linkage.ts` | Whether returns/adjustments link to specific purchases (purchase-linked rate availability) |
 | `warehouses.ts` | Warehouse and channel grouping |
-| `categories/` | `taxonomy.ts` (data), `rules.ts` (data), `engine.ts` (matcher and overrides), `analytics.ts` (spend by category) |
+| `categories/` | `taxonomy.ts` (data), `rules.ts` (data), `engine.ts` (matcher and overrides), `analytics.ts` (spend by category), `trends.ts` (category spend by year) |
 | `quality.ts` | Coverage and limitations |
 | `snapshot.ts`, `index.ts` | Public entry point |
 
@@ -247,8 +247,5 @@ s_i(t) = Σ lineTotalCents of those lines
 
 `invariants.test.ts` checks every reconciliation identity and that no value is NaN or Infinity. It runs on generated multi-year datasets at real and 10× scale, on edge cases and on the bundled fixture. A UI test checks that the cloud path (real API handler) and the local path give the same numbers.
 
-## What the dashboard PR still needs
-- **Charts:** monthly spend, price history and the inflation series, with drill-down using the IDs each aggregate already carries.
-- **Category overrides:** a review and override UI, persisted (IndexedDB locally; D1 if overrides should sync) and wired to `categoryOverrides`.
-- **As-of date:** choose between "today" and "latest data" for `asOf`.
-- **Caching:** an IndexedDB snapshot or dataset cache if loading time ever matters.
+## Dashboard
+The dashboard (`src/ui/dashboard/`, see `docs/DASHBOARD.md`) builds one snapshot per dataset and set of category overrides, keeps the default as-of date (latest date in the data), and stores overrides in this browser's IndexedDB. `categories/trends.ts` adds category spend by year for its trend table; for each category Σ years + undated equals its lifetime spend.

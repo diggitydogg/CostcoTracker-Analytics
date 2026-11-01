@@ -23,6 +23,7 @@ export type { ReturnAnalytics } from './returns'
 export type { AdjustmentAnalytics } from './adjustments'
 export { normalizeWarehouse, type WarehouseAnalytics, type WarehouseGroup } from './warehouses'
 export type { CategoryAnalytics, CategorySpend } from './categories/analytics'
+export { categoryTrends, type CategoryTrends } from './categories/trends'
 export {
   categorize,
   matchRules,
@@ -37,5 +38,5 @@ export {
   type CategorySuggester,
 } from './categories/engine'
 export { DEFAULT_RULES, type CategoryRule } from './categories/rules'
-export { CATEGORIES, categoryLabel, subcategoryLabel, type CategoryId } from './categories/taxonomy'
+export { CATEGORIES, categoryLabel, isValidAssignment, subcategoryLabel, type CategoryId } from './categories/taxonomy'
 export type { DataQuality, DatasetSourceInfo } from './quality'

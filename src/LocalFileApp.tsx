@@ -30,7 +30,7 @@ export function LocalFileApp({ store }: { store?: DatasetStore }) {
           setShowImport(false)
         }}
       />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-6 sm:px-6 lg:px-8">
         {controller.notice && (
           <p role="status" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             {controller.notice}
