@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildAnalyticsSnapshot } from '../snapshot'
 import { DatasetBuilder } from '../test/builder'
 import { categorize, matchRules, parseCategoryOverrides, serializeCategoryOverrides, tokenize, withOverride } from './engine'
+import { DEFAULT_RULES } from './rules'
 
 const cases: [string, string, string | null][] = [
   // Grocery
@@ -103,6 +104,90 @@ describe('category rules', () => {
 
   it('falls back through description variants, most recent first', () => {
     expect(categorize('1', ['MYSTERY THING', 'KS BANANAS'])).toMatchObject({ categoryId: 'grocery', subcategoryId: 'produce' })
+  })
+})
+
+/** Rules added after the real-data QA pass. Each has positives and negatives guarding against broad substrings. */
+const qaCases: [string, string, string | null][] = [
+  // Grocery
+  ['STREET TACOS', 'grocery', null],
+  ['CHICKEN STREET TACOS', 'grocery', 'meat-seafood'], // a more specific rule above still wins
+  ['TACO SEASONING', 'grocery', 'pantry'], // "TACO" alone is not a prepared-food rule
+  ['ORG MEDITERR', 'grocery', null],
+  ['MEDITERRANEAN SEA SALT', 'grocery', 'pantry'],
+  ['MEDITERRANEAN PATIO RUG', 'seasonal', null], // non-food rules come first
+  ['POPCORNERS', 'grocery', 'snacks'],
+  ['POPCORNERS KETTLE 28 CT', 'grocery', 'snacks'],
+  ['SPINDRIFT', 'grocery', 'beverages'],
+  ['SPINDRIFT LEMON 24 PK', 'grocery', 'beverages'],
+  ['SPINDRIFT SPIKED 12 PK', 'alcohol', null], // hard seltzer, not a soft drink
+  // Paper goods: the truncated receipt text only
+  ['KS BATH', 'paper-goods', null],
+  ['KS BATH TOWEL 2 PK', 'home', null],
+  ['KS BATH SHEET', 'home', null],
+  ['KS BATHROBE', 'uncategorized', null],
+  // Home
+  ['FAUCET', 'home', null],
+  ['PFISTER KITCHEN FAUCET', 'home', null],
+  ['PUR FAUCET FILTER 3 PK', 'household', null], // filters stay with household filters
+  ['BISSELLMULTI', 'home', null],
+  ['BISSELL CROSSWAVE', 'home', null],
+  ['BISSELL CLEANING FORMULA', 'cleaning', null], // consumable cleaner stays in cleaning
+  ['ZBEAMSHELVES', 'home', null],
+  ['WIRE SHELVES 5 TIER', 'home', null],
+  ['BOOKSHELVES', 'uncategorized', null], // whole tokens only
+  // Seasonal (outdoor living, like PATIO)
+  ['FIREPIT', 'seasonal', null],
+  ['SOLO STOVE FIRE PIT', 'seasonal', null],
+  ['FIREPLACE TOOL SET', 'uncategorized', null],
+  // Health
+  ['VITALPROTEIN', 'health', null],
+  ['VITAL PROTEINS COLLAGEN', 'health', null],
+  ['VITAL FARMS EGGS 24 CT', 'grocery', 'dairy-eggs'], // "VITAL" alone is not a rule
+  // Electronics (the Anker false positive)
+  ['Anker MagGo 3-in-1 Charging Station', 'electronics', null],
+  ['ANKER POWER BANK 2 PK', 'electronics', null],
+  ['BELKIN WIRELESS CHARGING PAD', 'electronics', null],
+  ['MAGSAFE CASE', 'electronics', null],
+  ['ANKLE SOCKS 10 PK', 'clothing', null], // "ANKER" is a whole token
+]
+
+describe('production QA rules', () => {
+  it.each(qaCases)('%s → %s / %s', (description, category, sub) => {
+    const a = categorize('1', [description])
+    expect([a.categoryId, a.subcategoryId]).toEqual([category, sub])
+  })
+
+  it('anchored phrases match only at the start/end of the description', () => {
+    expect(matchRules('KS BATH')?.phrase).toBe('^KS BATH$')
+    expect(matchRules('NEW KS BATH')).toBeNull()
+    expect(matchRules('KS BATH 30 ROLL')).toBeNull() // only the bare truncated text is anchored
+    expect(matchRules('')).toBeNull()
+    expect(matchRules('KS')).toBeNull() // shorter than the anchored phrase
+  })
+
+  it('the latest description decides before older variants with broad words', () => {
+    // An older receipt/return variant containing a broad grocery word no longer wins,
+    // because the latest description now matches the electronics rule first.
+    expect(categorize('1', ['Anker MagGo 3-in-1 Charging Station', 'ANKER 3IN1 FOR APPLE'])).toMatchObject({
+      categoryId: 'electronics',
+      matchedPhrase: 'ANKER',
+    })
+  })
+
+  it('every rule phrase is well formed and unique', () => {
+    const seen = new Map<string, string>()
+    for (const rule of DEFAULT_RULES) {
+      for (const phrase of rule.phrases) {
+        expect(phrase).toMatch(/^\^?[A-Z0-9]+\*?( [A-Z0-9]+\*?)*\$?$/)
+        expect(seen.get(phrase), `${phrase} appears in ${seen.get(phrase)} and ${rule.id}`).toBeUndefined()
+        seen.set(phrase, rule.id)
+      }
+    }
+  })
+
+  it('an override still beats the new rules', () => {
+    expect(categorize('9', ['SPINDRIFT'], { '9': { categoryId: 'alcohol' } })).toMatchObject({ categoryId: 'alcohol', source: 'override' })
   })
 })
 

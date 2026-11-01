@@ -5,9 +5,17 @@
  * Matching (see engine.ts): a description is upper-cased and split into
  * alphanumeric tokens. A rule phrase is a sequence of tokens that must appear
  * contiguously; a token ending in "*" matches any token with that prefix.
+ * A phrase starting with "^" must start the description and one ending in
+ * "$" must end it, so "^KS BATH$" matches only the bare (truncated) receipt
+ * text "KS BATH", never "KS BATH TOWEL".
  * Rules are evaluated top to bottom and the FIRST match wins, so specific
  * phrases ("PEANUT BUTTER", "HOT DOG", "PAPER TOWEL*") are listed before the
  * generic words they contain ("BUTTER", "DOG", "TOWEL*").
+ *
+ * Adding rules: prefer brand names and multi-word product phrases over single
+ * generic words, put a rule above any broader rule that would capture it, and
+ * add positive AND negative cases to categories.test.ts. An ambiguous product
+ * is better left Uncategorized (the owner can override it) than misfiled.
  */
 import type { CategoryId, SubcategoryId } from './taxonomy'
 
@@ -30,7 +38,9 @@ export const DEFAULT_RULES: CategoryRule[] = [
   g('specific-meat', 'meat-seafood', ['HOT DOG*', 'CORN DOG*']),
   g('specific-produce', 'produce', ['BELL PEPPER*', 'SWEET POTATO*', 'MINI PEPPER*']),
   g('specific-pantry', 'pantry', ['PEANUT BUTTER', 'ALMOND BUTTER', 'OLIVE OIL', 'AVOCADO OIL', 'COCONUT OIL', 'CHICKEN BROTH', 'BONE BROTH']),
-  g('specific-snacks', 'snacks', ['MILK CHOCOLATE', 'DARK CHOCOLATE', 'BEEF JERKY', 'TRAIL MIX', 'FRUIT SNACK*', 'GRANOLA BAR*', 'PROTEIN BAR*']),
+  g('specific-snacks', 'snacks', ['MILK CHOCOLATE', 'DARK CHOCOLATE', 'BEEF JERKY', 'TRAIL MIX', 'FRUIT SNACK*', 'GRANOLA BAR*', 'PROTEIN BAR*', 'POPCORNERS']),
+  // Water/faucet filters belong with household filters, not with faucets (home).
+  { id: 'specific-household', categoryId: 'household', phrases: ['FAUCET FILTER*', 'WATER FILTER*'] },
   g('specific-beverages', 'beverages', ['OAT MILK', 'ALMOND MILK', 'COCONUT WATER', 'SPARKLING WATER', 'ORANGE JUICE', 'APPLE JUICE', 'ENERGY DRINK*', 'SPORTS DRINK*', 'K CUP*']),
   g('specific-frozen', 'frozen', ['ICE CREAM']),
 
@@ -40,7 +50,7 @@ export const DEFAULT_RULES: CategoryRule[] = [
     phrases: [
       'HARD SELTZER', 'WINE', 'WINES', 'BEER', 'VODKA', 'WHISKEY', 'WHISKY', 'BOURBON', 'TEQUILA', 'RUM', 'GIN',
       'CHAMPAGNE', 'PROSECCO', 'CABERNET', 'CHARDONNAY', 'PINOT', 'MERLOT', 'SAUVIGNON', 'RIESLING', 'IPA',
-      'LAGER', 'SAKE', 'SCOTCH', 'BRANDY', 'COGNAC', 'LIQUEUR', 'MEZCAL',
+      'LAGER', 'SAKE', 'SCOTCH', 'BRANDY', 'COGNAC', 'LIQUEUR', 'MEZCAL', 'SPIKED',
     ],
   },
   {
@@ -59,6 +69,8 @@ export const DEFAULT_RULES: CategoryRule[] = [
     phrases: [
       'PAPER TOWEL*', 'PAPER TWL*', 'TOILET PAPER', 'BATH TISSUE', 'BATH TISS', 'FACIAL TISSUE*', 'TISSUE', 'TISSUES',
       'NAPKIN*', 'PAPER PLATE*', 'KLEENEX', 'BOUNTY', 'CHARMIN',
+      // Kirkland bath tissue, truncated on the receipt to exactly "KS BATH".
+      '^KS BATH$',
     ],
   },
   {
@@ -84,7 +96,7 @@ export const DEFAULT_RULES: CategoryRule[] = [
     phrases: [
       'VITAMIN*', 'MULTIVITAMIN*', 'SUPPLEMENT*', 'IBUPROFEN', 'ACETAMINOPHEN', 'ALLERGY', 'ANTACID', 'FISH OIL', 'OMEGA',
       'PROBIOTIC*', 'MELATONIN', 'BANDAGE*', 'FIRST AID', 'PAIN RELIEF', 'CONTACT LENS*', 'COLLAGEN', 'PROTEIN POWDER',
-      'ZYRTEC', 'CLARITIN', 'ADVIL', 'TYLENOL', 'ALEVE', 'NASAL', 'COUGH',
+      'ZYRTEC', 'CLARITIN', 'ADVIL', 'TYLENOL', 'ALEVE', 'NASAL', 'COUGH', 'VITALPROTEIN*', 'VITAL PROTEIN*',
     ],
   },
   {
@@ -94,6 +106,7 @@ export const DEFAULT_RULES: CategoryRule[] = [
       'TV', 'TELEVISION', 'LAPTOP', 'IPAD', 'IPHONE', 'TABLET', 'HEADPHONE*', 'EARBUDS', 'AIRPODS', 'HDMI', 'USB',
       'CHARGER', 'CABLE', 'MONITOR', 'CAMERA', 'SPEAKER*', 'SSD', 'ROUTER', 'PRINTER', 'INK', 'KEYBOARD', 'SMARTWATCH',
       'APPLE WATCH', 'SOUNDBAR', 'NINTENDO', 'PLAYSTATION', 'XBOX', 'SD CARD', 'MEMORY CARD',
+      'ANKER', 'MAGGO', 'MAGSAFE', 'CHARGING STATION*', 'CHARGING PAD*', 'WIRELESS CHARG*', 'POWER BANK*',
     ],
   },
   {
@@ -110,7 +123,7 @@ export const DEFAULT_RULES: CategoryRule[] = [
     categoryId: 'seasonal',
     phrases: [
       'CHRISTMAS', 'XMAS', 'HALLOWEEN', 'HOLIDAY', 'ORNAMENT*', 'WREATH', 'GARLAND', 'EASTER', 'THANKSGIVING',
-      'VALENTINE*', 'PATIO', 'POOL', 'COSTUME*',
+      'VALENTINE*', 'PATIO', 'POOL', 'COSTUME*', 'FIREPIT*', 'FIRE PIT*',
     ],
   },
   {
@@ -120,7 +133,7 @@ export const DEFAULT_RULES: CategoryRule[] = [
       'BATH TOWEL*', 'BATH SHEET*', 'TOWEL*', 'SHEET SET', 'SHEETS', 'PILLOW*', 'BLANKET*', 'COMFORTER', 'DUVET',
       'MATTRESS', 'LAMP', 'RUG', 'CHAIR', 'TABLE', 'COOKWARE', 'SKILLET', 'FRY PAN', 'KNIFE', 'KNIVES', 'CUTTING BOARD',
       'DESK', 'SHELF', 'SHELVING', 'VACUUM', 'CURTAIN*', 'FURNITURE', 'STORAGE BIN*', 'FOOD STORAGE', 'DINNERWARE',
-      'MUG', 'MUGS', 'PLANTER*', 'GARDEN', 'MULCH', 'HOSE',
+      'MUG', 'MUGS', 'PLANTER*', 'GARDEN', 'MULCH', 'HOSE', 'FAUCET*', 'SHELVES', 'ZBEAM*', 'BISSELL*',
     ],
   },
   {
@@ -142,7 +155,7 @@ export const DEFAULT_RULES: CategoryRule[] = [
   ]),
   g('beverages', 'beverages', [
     'WATER', 'SODA', 'COLA', 'COKE', 'PEPSI', 'LACROIX', 'JUICE', 'COFFEE', 'KCUP*', 'ESPRESSO', 'TEA', 'KOMBUCHA',
-    'GATORADE', 'LEMONADE', 'DRINK*', 'BEVERAGE*',
+    'GATORADE', 'LEMONADE', 'DRINK*', 'BEVERAGE*', 'SPINDRIFT',
   ]),
   g('bakery', 'bakery', [
     'BREAD', 'BAGEL*', 'MUFFIN*', 'CROISSANT*', 'TORTILLA*', 'CAKE', 'CUPCAKE*', 'PIE', 'ROLLS', 'BUNS', 'DONUT*',
@@ -170,4 +183,7 @@ export const DEFAULT_RULES: CategoryRule[] = [
     'CELERY', 'GARLIC', 'MUSHROOM*', 'PEAR', 'PEARS', 'PEACH*', 'PLUM*', 'CHERR*', 'WATERMELON', 'MELON*',
     'CANTALOUPE', 'KIWI*', 'ZUCCHINI', 'SQUASH', 'CILANTRO', 'HERBS', 'VEGGIE*', 'VEGETABLE*', 'FRUIT', 'PRODUCE',
   ]),
+  // Prepared/deli foods that are clearly groceries but fit no subcategory. Last, so any
+  // more specific rule above (meat, produce, pantry…) wins first.
+  { id: 'grocery-prepared', categoryId: 'grocery', phrases: ['STREET TACO*', 'MEDITERR*'] },
 ]

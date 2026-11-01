@@ -62,11 +62,21 @@ export type ItemStats = {
 }
 
 export type ItemAnalytics = {
+  /**
+   * Every item number in the data: purchased ones AND ones seen only in
+   * returns or price adjustments (cohort "not-purchased", e.g. bought before
+   * the data begins). `items.length === itemCounts.all`.
+   */
   items: ItemStats[]
   byItemNumber: Map<string, ItemStats>
   priceHistories: Map<string, PriceHistory>
   cohorts: Record<ItemCohort | 'recent', string[]>
-  uniqueItemCount: number
+  /**
+   * all = every item number (= items.length);
+   * purchased = item numbers with at least one purchase line in the data;
+   * returnsOrAdjustmentsOnly = all − purchased.
+   */
+  itemCounts: { all: number; purchased: number; returnsOrAdjustmentsOnly: number }
   topBySpend: string[]
   topByEvents: string[]
 }
@@ -188,7 +198,7 @@ export function computeItems(
     byItemNumber: new Map(items.map((i) => [i.itemNumber, i])),
     priceHistories,
     cohorts,
-    uniqueItemCount: purchased.length,
+    itemCounts: { all: items.length, purchased: purchased.length, returnsOrAdjustmentsOnly: items.length - purchased.length },
     topBySpend: rank((i) => i.totalSpentCents),
     topByEvents: rank((i) => i.purchaseEvents),
   }

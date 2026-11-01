@@ -32,6 +32,8 @@ type Props = {
   openLabel?: (index: number) => string
   /** Extra legend entries (e.g. what a hollow marker means). */
   legendExtra?: { label: string; color: string; kind: 'box' | 'line' | 'dashed' | 'dot' }[]
+  /** Breaks between point index-1 and index, drawn as a labelled band (e.g. a broken index chain). */
+  gaps?: { index: number; label: string }[]
 }
 
 const M = { top: 10, right: 12, bottom: 22, left: 56 }
@@ -54,6 +56,7 @@ export function LineChart({
   onOpen,
   openLabel,
   legendExtra = [],
+  gaps = [],
 }: Props) {
   const n = xs.length
   const [ref, width] = useElementWidth<HTMLDivElement>()
@@ -161,6 +164,20 @@ export function LineChart({
               </text>
             </g>
           ))}
+          {gaps
+            .filter((g) => g.index > 0 && g.index < n)
+            .map((g) => {
+              const x0 = x(xs[g.index - 1]!)
+              const x1 = x(xs[g.index]!)
+              return (
+                <g key={`gap${g.index}`} data-testid="chart-gap">
+                  <rect x={x0} y={M.top} width={Math.max(2, x1 - x0)} height={plotH} fill="#f8fafc" stroke="#cbd5e1" strokeDasharray="3 3" />
+                  <text x={(x0 + x1) / 2} y={M.top + 12} textAnchor="middle" className="fill-slate-500 text-[10px]">
+                    {g.label}
+                  </text>
+                </g>
+              )
+            })}
           {baseline !== undefined && <line x1={M.left} x2={M.left + plotW} y1={y(baseline)} y2={y(baseline)} stroke={SERIES.axis} strokeDasharray="2 3" />}
           <line x1={x(xs[idx]!)} x2={x(xs[idx]!)} y1={M.top} y2={M.top + plotH} stroke={SERIES.axis} strokeWidth={1} />
           {/* Draw the first (primary) series last so it sits on top. */}

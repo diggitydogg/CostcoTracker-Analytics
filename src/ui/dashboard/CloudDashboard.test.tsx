@@ -51,6 +51,19 @@ describe('cloud dashboard', () => {
     expect(cloudNumbers!.length).toBeGreaterThan(5)
   })
 
+  it('names the top-level management tab "Cloud status", leaving the dashboard\'s own Overview section alone', async () => {
+    const h = await createCloudHarness()
+    await h.signIn()
+    const user = userEvent.setup()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    const cloudNav = await screen.findByRole('navigation', { name: 'Cloud sections' })
+    expect(within(cloudNav).getAllByRole('button').map((b) => b.textContent)).toEqual(['Dashboard', 'Cloud status', 'Sync', 'iPhones', 'Import', 'Backup'])
+    await screen.findByTestId('dashboard')
+    expect(within(screen.getByRole('navigation', { name: 'Dashboard sections' })).getByRole('button', { name: 'Overview' })).toBeInTheDocument()
+    await openTab(user, 'Cloud status')
+    expect(await screen.findByRole('heading', { name: 'Cloud status', level: 2 })).toBeInTheDocument()
+  })
+
   it('shows an error if the cloud data cannot be loaded', async () => {
     const h = await createCloudHarness()
     await h.signIn()
@@ -117,14 +130,14 @@ describe('cloud dashboard', () => {
     expect(screen.queryByText('Your cloud has new data since this dashboard was loaded.')).not.toBeInTheDocument()
   })
 
-  it('marks the dashboard stale when the overview sees a newer iPhone sync', async () => {
+  it('marks the dashboard stale when Cloud status sees a newer iPhone sync', async () => {
     const h = await createCloudHarness()
     const device = await enrollTestDevice(h)
     const user = userEvent.setup()
     render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
     await screen.findByText(/There is no purchase data yet/)
     await h.device.sync(device.deviceToken, fixtureData()) // the iPhone syncs after the dashboard loaded
-    await openTab(user, 'Overview')
+    await openTab(user, 'Cloud status')
     await screen.findByText('Connected')
     const before = h.requests.length
     await openTab(user, 'Dashboard')
@@ -138,7 +151,7 @@ describe('cloud dashboard', () => {
     const user = userEvent.setup()
     render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
     await screen.findByTestId('dashboard')
-    await openTab(user, 'Overview')
+    await openTab(user, 'Cloud status')
     await user.click(await screen.findByRole('button', { name: 'Sign out of this browser' }))
     await screen.findByText('You are signed out.')
     const before = h.requests.length
@@ -147,7 +160,7 @@ describe('cloud dashboard', () => {
     await openTab(user, 'Dashboard')
     await screen.findByTestId('dashboard')
     // Signing back in starts from nothing: the previous session's copy was not kept.
-    // (The Overview tab shown after sign-in makes its own meta request.)
+    // (The Cloud status tab shown after sign-in makes its own meta request.)
     expect(exportCalls(h, before).filter((p) => p !== '/api/export/meta')).toEqual(FULL_LOAD.slice(1))
   })
 })

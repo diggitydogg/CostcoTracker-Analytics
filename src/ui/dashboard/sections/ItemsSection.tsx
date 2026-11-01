@@ -1,7 +1,7 @@
 import { useDeferredValue, useMemo, useState } from 'react'
 import { CATEGORIES, categoryLabel } from '../../../analytics'
 import { useDashboard } from '../context'
-import { COHORT_LABEL, queryItems, type ItemFilter, type ItemSortKey } from '../derive'
+import { COHORT_LABEL, itemsSummary, queryItems, type ItemFilter, type ItemSortKey } from '../derive'
 import { change, count, date, money } from '../format'
 import { Badge, Panel, Segmented, TableWrap } from '../ui'
 
@@ -12,6 +12,8 @@ const FILTERS: { id: ItemFilter; label: string }[] = [
   { id: 'one-and-done', label: 'One-and-done' },
   { id: 'dormant-staple', label: 'Dormant staples' },
   { id: 'recent', label: 'Recent' },
+  // Item numbers seen only in returns or price adjustments (bought before the data begins).
+  { id: 'not-purchased', label: 'Returns/adjustments only' },
 ]
 
 const COLUMNS: { key: ItemSortKey; label: string; numeric?: boolean; defaultDescending?: boolean }[] = [
@@ -26,6 +28,7 @@ const COLUMNS: { key: ItemSortKey; label: string; numeric?: boolean; defaultDesc
 ]
 
 const PAGE = 50
+
 
 export function ItemsSection() {
   const { s, open } = useDashboard()
@@ -42,7 +45,7 @@ export function ItemsSection() {
     [s.items.items, deferred, filter, categoryId, sort, descending],
   )
   const counts = useMemo(() => {
-    const c: Record<ItemFilter, number> = { all: s.items.items.length, recent: s.items.cohorts.recent.length } as Record<ItemFilter, number>
+    const c: Record<ItemFilter, number> = { all: s.items.itemCounts.all, recent: s.items.cohorts.recent.length } as Record<ItemFilter, number>
     for (const f of ['staple', 'occasional', 'one-and-done', 'dormant-staple', 'not-purchased'] as const) c[f] = s.items.cohorts[f].length
     return c
   }, [s])
@@ -60,7 +63,7 @@ export function ItemsSection() {
   return (
     <Panel
       title="Item explorer"
-      subtitle={`${count(s.items.uniqueItemCount)} distinct items. Recent = bought in the last ${s.thresholds.recentDays} days of the data. Prices are recorded unit prices only.`}
+      subtitle={`${itemsSummary(s.items.itemCounts)} Recent = bought in the last ${s.thresholds.recentDays} days of the data. Prices are recorded unit prices only.`}
     >
       <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-1 flex-col gap-2 sm:flex-row">
@@ -103,7 +106,7 @@ export function ItemsSection() {
             setFilter(f)
             setLimit(PAGE)
           }}
-          options={FILTERS.map((f) => ({ id: f.id, label: `${f.label} ${count(counts[f.id])}` }))}
+          options={FILTERS.filter((f) => f.id !== 'not-purchased' || counts[f.id] > 0).map((f) => ({ id: f.id, label: `${f.label} ${count(counts[f.id])}` }))}
         />
       </div>
 

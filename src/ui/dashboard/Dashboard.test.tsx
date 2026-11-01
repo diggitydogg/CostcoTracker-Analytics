@@ -169,12 +169,12 @@ describe('personal price index', () => {
   ] as const)('shows the %s confidence state and still shows the number', async (_, unmatched, enough, label) => {
     const { user } = renderDashboard(inflationData(unmatched, enough ? 5 : 2))
     await tab(user, 'Price index')
-    const cards = screen.getAllByText(/Your basket|Matched items, same years/)
+    const cards = screen.getAllByText(/^(Your basket|Matched items), year over year/)
     expect(cards.length).toBeGreaterThan(0)
     const table = screen.getByRole('region', { name: 'Price index links table' })
     expect(within(table).getByText(label)).toBeInTheDocument()
     // The simple index value is shown even when confidence is low.
-    expect(screen.getByText('Matched items, same years').closest('div')).toHaveTextContent('+10.0%')
+    expect(screen.getByText(/^Matched items, year over year/).closest('div')).toHaveTextContent('+10.0%')
     if (label !== 'Reliable') expect(screen.getByRole('note')).toHaveTextContent(label === 'Low coverage' ? 'Low coverage' : 'Insufficient')
     else expect(screen.queryByRole('note')).not.toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/\bCPI\b(?!\))/) // only mentioned as "not … (CPI)"
@@ -348,5 +348,111 @@ describe('responsive charts', () => {
     const { user } = renderDashboard(dataset())
     await tab(user, 'Items')
     expect(screen.getByRole('region', { name: 'Items table' })).toHaveClass('overflow-x-auto')
+  })
+})
+
+describe('production QA regressions', () => {
+  /** Purchases of three items, plus a return and an adjustment for item numbers never bought in the data. */
+  function countsData() {
+    const b = new DatasetBuilder()
+    b.buy('2025-01-05', 'A', 500, 1, { description: 'KS PAPER TOWELS' })
+    b.buy('2025-02-05', 'A', 500, 1, { description: 'KS PAPER TOWELS' })
+    b.buy('2025-03-05', 'B', 700, 1, { description: 'KS LARGE EGGS' })
+    b.buy('2025-03-06', 'C', 900, 1, { description: 'ROTISSERIE CHICKEN' })
+    b.ret({ itemNumber: 'OLD1', date: '2025-03-10', description: 'OLD BLENDER' })
+    b.adj({ itemNumber: 'OLD2', date: '2025-03-11', amountCents: 300 })
+    return b.build()
+  }
+
+  it('item counts agree: header, All filter, list and pattern filters (items seen only in returns/adjustments)', async () => {
+    const { user } = renderDashboard(countsData())
+    await tab(user, 'Items')
+    // 5 item numbers: 3 purchased + 2 only in a return / price adjustment (the 691 vs 693 condition).
+    expect(screen.getByRole('region', { name: 'Item explorer' })).toHaveTextContent('5 items: 3 bought in this data and 2 seen only in returns or price adjustments.')
+    expect(screen.getByRole('radio', { name: 'All 5' })).toBeInTheDocument()
+    expect(screen.getByTestId('item-count')).toHaveTextContent('5 items')
+    const pills = screen.getAllByRole('radio').filter((r) => !/^(All|Recent) /.test(r.textContent ?? ''))
+    const sum = pills.reduce((t, r) => t + Number((r.textContent ?? '').match(/(\d+)$/)![1]), 0)
+    expect(sum).toBe(5) // pattern pills partition "All"
+    await user.click(screen.getByRole('radio', { name: 'Returns/adjustments only 2' }))
+    expect(screen.getByTestId('item-count')).toHaveTextContent('2 items')
+    const rows = within(screen.getByRole('region', { name: 'Items table' })).getAllByRole('row').slice(1)
+    expect(rows.map((r) => r.textContent)).toEqual([expect.stringContaining('OLD'), expect.stringContaining('OLD')])
+    for (const r of rows) expect(r).toHaveTextContent('Returns/adjustments only')
+  })
+
+  it('names one count when every item was bought', async () => {
+    const b = new DatasetBuilder()
+    b.buy('2025-01-05', 'A', 500)
+    const { user } = renderDashboard(b.build())
+    await tab(user, 'Items')
+    expect(screen.getByRole('region', { name: 'Item explorer' })).toHaveTextContent('1 item, all bought in this data.')
+    expect(screen.queryByRole('radio', { name: /Returns\/adjustments only/ })).not.toBeInTheDocument()
+  })
+
+  /**
+   * 2023 → 2024: no comparable items (chain breaks); 2024 → 2025: one item;
+   * 2025 → 2026: five matched items covering all spend, −1.4% (reliable).
+   */
+  function brokenChainData() {
+    const b = new DatasetBuilder()
+    for (const i of ['A', 'B', 'C', 'D', 'E']) b.buy('2023-03-01', i, 1000)
+    b.buy('2024-03-01', 'F', 1000)
+    b.buy('2025-03-01', 'F', 1000)
+    for (const i of ['G', 'H', 'I', 'J', 'K']) {
+      b.buy('2025-04-01', i, 1000)
+      b.buy('2026-04-01', i, 986)
+    }
+    return b.build()
+  }
+
+  it('keeps a valid recent year-over-year result visible when an earlier year breaks the cumulative chain', async () => {
+    const data = brokenChainData()
+    const s = buildAnalyticsSnapshot(data)
+    // Engine semantics are unchanged: the recent link is reliable, the chain is not bridged.
+    const latest = s.inflation.summary.latestYear!
+    expect([latest.from, latest.to, latest.confidence, latest.matchedItems]).toEqual(['2025', '2026', 'reliable', 5])
+    expect(latest.weightedChange).toBeCloseTo(-0.014, 12)
+    expect(s.inflation.yearly.links[0]).toMatchObject({ from: '2023', to: '2024', matchedItems: 0, simpleRelative: null })
+    expect(s.inflation.summary.cumulativeWeightedChange).toBeNull()
+    expect(s.inflation.summary.cumulativeSimpleChange).toBeNull()
+    expect(s.inflation.yearly.periods.at(-1)).toMatchObject({ period: '2026', weightedIndex: null, simpleIndex: null })
+
+    const { user } = renderDashboard(data)
+    await tab(user, 'Price index')
+    // The year-over-year card shows the valid result with its confidence.
+    const yoy = screen.getByText('Your basket, year over year (2025 → 2026)', { selector: 'span' }).closest('div')!
+    expect(yoy).toHaveTextContent('−1.4%')
+    expect(yoy).toHaveTextContent('Reliable')
+    // The cumulative card says why it is unavailable instead of a bare dash.
+    expect(cardValue('Cumulative, 2023 → 2026')).toBe('Not available')
+    expect(screen.getByTestId('cumulative-break')).toHaveTextContent(
+      'Chain broken at 2023 → 2024: no item was bought with a recorded price in both 2023 and 2024. Year-over-year results are unaffected.',
+    )
+    expect(cardValue('Per year, annualized')).toBe('Not available')
+    // The table names the gap and keeps the valid comparison.
+    const table = screen.getByRole('region', { name: 'Price index links table' })
+    const row = (label: string) => within(table).getByRole('button', { name: label }).closest('tr')!
+    expect(row('2023 → 2024')).toHaveTextContent('No comparable items')
+    expect(row('2025 → 2026')).toHaveTextContent('−1.4%')
+    expect(row('2025 → 2026')).toHaveTextContent('Reliable')
+    // The chained chart marks the break and its readout (on 2026) still shows the valid change.
+    const chart = screen.getByRole('region', { name: 'Cumulative price index (chained)' })
+    expect(within(chart).getByTestId('chain-break-note')).toHaveTextContent('Chain broken at 2023 → 2024')
+    expect(within(chart).getAllByTestId('chart-gap')).toHaveLength(1)
+    const footer = within(chart).getByTestId('index-footer')
+    expect(footer).toHaveTextContent('2025 → 2026 on its own: −1.4% weighted · −1.4% simple')
+    expect(footer).toHaveTextContent('Reliable')
+    expect(footer).toHaveTextContent('Cumulative value not available: chain broken at 2023 → 2024.')
+    expectCleanText()
+  })
+
+  it('shows an unbroken chain without break notes', async () => {
+    const { user } = renderDashboard(inflationData(0))
+    await tab(user, 'Price index')
+    expect(screen.queryByTestId('cumulative-break')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('chain-break-note')).not.toBeInTheDocument()
+    expect(screen.queryAllByTestId('chart-gap')).toHaveLength(0)
+    expect(cardValue('Cumulative, 2022 → 2023')).toBe('+10.0%')
   })
 })
