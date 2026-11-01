@@ -1,4 +1,6 @@
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
+import { suggestResponseSchema, type SuggestRequestItem, type SuggestResponse } from '../../analytics/categories/suggestProtocol'
+import { useCloud } from '../../cloud/CloudContext'
 import { useCloudDataset } from '../../cloud/CloudDatasetContext'
 import type { OverridesStore } from '../../persistence/overridesStore'
 import { Button, Notice } from '../cloud/primitives'
@@ -17,6 +19,22 @@ export function CloudDashboard({ overridesStore, today }: { overridesStore?: Ove
   const cache = useCloudDataset()
   if (!cache) throw new Error('CloudDashboard must be used inside <CloudDatasetProvider>')
   const { dataset, loading, error, loadedAt, stale, ensureLoaded, reload } = cache
+  const { api, handle } = useCloud()
+  // Owner-only AI category suggestions. Errors become plain messages (a lost session signs out as usual).
+  const suggester = useCallback(
+    async (items: SuggestRequestItem[]): Promise<SuggestResponse> => {
+      let raw: unknown
+      try {
+        raw = await api.suggestCategories(items)
+      } catch (e) {
+        throw new Error(handle(e), { cause: e })
+      }
+      const parsed = suggestResponseSchema.safeParse(raw)
+      if (!parsed.success) throw new Error('The AI suggestion response was not in the expected format.')
+      return parsed.data as SuggestResponse
+    },
+    [api, handle],
+  )
   useEffect(() => ensureLoaded(), [ensureLoaded])
 
   const tombstoned = dataset?.meta.counts.tombstoned ?? 0
@@ -48,6 +66,7 @@ export function CloudDashboard({ overridesStore, today }: { overridesStore?: Ove
         <Dashboard
           data={dataset.data}
           source={source}
+          suggester={suggester}
           {...(overridesStore ? { overridesStore } : {})}
           {...(today ? { today } : {})}
           toolbar={

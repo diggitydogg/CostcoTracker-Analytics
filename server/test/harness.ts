@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { applyMigrations, nodeSqliteDatabase, type NodeSqlite } from '../adapters/nodeSqlite'
+import { createRateLimiter, type AiBinding } from '../ai/categorySuggest'
 import { createApp } from '../app'
 
 export const ORIGIN = 'https://analytics.example.test'
@@ -16,7 +17,9 @@ export type Harness = {
 }
 type CallOptions = { body?: unknown; rawBody?: string; cookie?: string; bearer?: string; origin?: string | null }
 
-export function createHarness(options: { configureKey?: boolean } = {}): Harness {
+export function createHarness(
+  options: { configureKey?: boolean; ai?: AiBinding; aiLimiter?: { check(now: Date): void } } = {},
+): Harness {
   const db = nodeSqliteDatabase()
   applyMigrations(db, MIGRATIONS)
   const clock = { now: new Date('2026-10-31T12:00:00.000Z') }
@@ -25,8 +28,11 @@ export function createHarness(options: { configureKey?: boolean } = {}): Harness
     env: {
       OWNER_ACCESS_KEY_SHA256:
         options.configureKey === false ? undefined : createHash('sha256').update(ACCESS_KEY).digest('hex'),
+      ...(options.ai ? { AI: options.ai } : {}),
     },
     now: () => clock.now,
+    // A fresh limiter per harness so tests never share the isolate-wide one.
+    aiLimiter: options.aiLimiter ?? createRateLimiter(),
   })
 
   const call: Harness['call'] = async (method, path, opts = {}) => {

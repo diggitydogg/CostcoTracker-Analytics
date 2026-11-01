@@ -7,6 +7,7 @@
  */
 import migration from '../../migrations/0001_initial.sql?raw'
 import { applyMigrationSql, nodeSqliteDatabase, type NodeSqlite } from '../../server/adapters/nodeSqlite'
+import { createRateLimiter, type AiBinding } from '../../server/ai/categorySuggest'
 import { createApp } from '../../server/app'
 import { createCloudApi, type CloudApi, type FetchLike } from '../cloud/api'
 import type { AnalyticsExportV1 } from '../domain/export/v1'
@@ -55,12 +56,16 @@ export type CloudHarness = {
   hasSessionCookie(): boolean
 }
 
-export async function createCloudHarness(options: { configured?: boolean } = {}): Promise<CloudHarness> {
+export async function createCloudHarness(options: { configured?: boolean; ai?: AiBinding } = {}): Promise<CloudHarness> {
   const db = nodeSqliteDatabase()
   applyMigrationSql(db, [migration])
   const app = createApp({
     db,
-    env: options.configured === false ? {} : { OWNER_ACCESS_KEY_SHA256: await sha256Hex(ACCESS_KEY) },
+    env: {
+      ...(options.configured === false ? {} : { OWNER_ACCESS_KEY_SHA256: await sha256Hex(ACCESS_KEY) }),
+      ...(options.ai ? { AI: options.ai } : {}),
+    },
+    aiLimiter: createRateLimiter(),
   })
   let cookie: string | null = null
   const faults: Fault[] = []

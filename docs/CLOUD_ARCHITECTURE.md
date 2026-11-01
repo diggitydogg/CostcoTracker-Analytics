@@ -364,6 +364,6 @@ The Export V1 fields only:
 | Server-side heavy analytics | Could exceed the 10 ms CPU limit | Avoided. Analytics run in the browser. |
 | History beyond ~100k written rows per day, or >500 MB | D1 free caps | A bootstrap spreads across days. Size would take decades. |
 | Longer point-in-time recovery | Time Travel retention is longer on paid | Use exported backups instead. |
-| AI categorization (future) | External LLM APIs are paid; Workers AI has a small free allocation | Optional future feature, off by default. |
+| AI category suggestions | Workers AI beyond its free daily allocation | Optional, owner-triggered only, bounded (25 items per request, 100 per click, per-isolate rate limit). On the Free plan, over-allocation requests fail instead of billing. See `docs/AI_CATEGORY_SUGGESTIONS.md`. |
 | Cloudflare Access | Zero Trust Free covers ≤50 users, but signup may ask for billing details | Optional layer, not required. |
 | Email or alerting | Third-party email services | Not planned. |

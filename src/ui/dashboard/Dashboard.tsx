@@ -12,6 +12,7 @@ import { OverviewSection } from './sections/OverviewSection'
 import { ReturnsAdjustmentsSection } from './sections/ReturnsAdjustmentsSection'
 import { WarehousesSection } from './sections/WarehousesSection'
 import { useCategoryOverrides } from './useCategoryOverrides'
+import { useSuggestionSession, type BatchCategorySuggester } from './useSuggestionSession'
 
 export type DashboardTab = 'overview' | 'items' | 'inflation' | 'categories' | 'returns' | 'warehouses'
 
@@ -23,6 +24,10 @@ const TABS: { id: DashboardTab; label: string }[] = [
   { id: 'returns', label: 'Returns & adjustments' },
   { id: 'warehouses', label: 'Warehouses' },
 ]
+
+const unavailableSuggester: BatchCategorySuggester = async () => {
+  throw new Error('AI suggestions are not available here.')
+}
 
 let defaultStore: OverridesStore | null = null
 const getDefaultStore = () => (defaultStore ??= createOverridesStore())
@@ -43,6 +48,7 @@ export function Dashboard({
   today = todayIso(),
   toolbar,
   initialTab = 'overview',
+  suggester,
 }: {
   data: AnalyticsExportV1
   source: DatasetSourceInfo
@@ -50,6 +56,8 @@ export function Dashboard({
   today?: string
   toolbar?: ReactNode
   initialTab?: DashboardTab
+  /** Cloud mode only: sends Uncategorized items to the AI suggestion endpoint. Omitted in local-file mode. */
+  suggester?: BatchCategorySuggester
 }) {
   const store = overridesStore ?? getDefaultStore()
   const overrides = useCategoryOverrides(store)
@@ -68,12 +76,15 @@ export function Dashboard({
     }
   }, [s])
 
+  const session = useSuggestionSession(suggester ?? unavailableSuggester)
+  const ai = suggester ? session : null
+
   const [tab, setTab] = useState<DashboardTab>(initialTab)
   const [stack, setStack] = useState<Drill[]>([])
   const open = useCallback((d: Drill) => setStack((st) => [...st, d]), [])
   const ctx = useMemo<DashboardContextValue>(
-    () => ({ s, lookups, open, overrides, today }),
-    [s, lookups, open, overrides, today],
+    () => ({ s, lookups, open, overrides, today, ai }),
+    [s, lookups, open, overrides, today, ai],
   )
 
   const q = s.quality
