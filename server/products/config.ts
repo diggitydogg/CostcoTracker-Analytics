@@ -5,7 +5,7 @@
  * JSON API usable from Cloudflare Pages Functions with a single secret.
  * Configure with the secret SEARCH_API_KEY (`wrangler pages secret put
  * SEARCH_API_KEY`, or the Pages dashboard → Settings → Variables and
- * Secrets). Without it, identification serves cached identities only and the
+ * Secrets). Without it, identification serves the local product catalog only and the
  * rest of the app is unaffected. Swapping providers means adding another
  * `WebSearch` adapter in search.ts and choosing it in `searchFromEnv`.
  */

@@ -1,73 +1,88 @@
 /**
- * Product identification pipeline (owner-only, POST /api/products/identify):
+ * Product identification (owner-only, POST /api/products/identify).
  *
- *   1. D1 cache lookup by item number (product_identities).
- *   2. Cache hit → returned immediately; a recent "not_found" is not retried.
- *   3. Cache miss → targeted public web search (item number + receipt
- *      description, then the quoted item number). A result must contain the
- *      exact item number to count.
- *   4. Optional Workers AI normalization of the found results (one call per
- *      batch): clean name, brand, product type. Without AI, or if it fails,
- *      the cleaned search-result title is used.
- *   5. Cache the outcome so the item number is researched only once.
+ * Brave web search is a TRANSIENT discovery step; D1 holds only OUR OWN
+ * resolved product catalog (product_identities):
+ *
+ *   1. Local catalog lookup by item number. A resolved item number is answered
+ *      from D1 and is never searched again. A recent unresolved attempt is not
+ *      retried before its retry_after.
+ *   2. Unknown item number → targeted search ("Costco <item#> <desc>", then
+ *      "Costco \"<item#>\""). A result counts only if it names the exact item
+ *      number; the evidence class decides the outcome (see search.ts).
+ *   3. Strong evidence (Costco.com page, or 2+ independent agreeing sites) →
+ *      canonical name (optionally AI-normalized), brand and product type are
+ *      resolved during this request and saved as our own record.
+ *      Weak evidence (one non-Costco source) or nothing → saved only as
+ *      "unresolved" (outcome + retry time, no product details).
+ *   4. Search results (titles, snippets, URLs, thumbnails, ranking) live only
+ *      in memory for this request and are discarded.
  *
  * Categorization happens afterwards in the dashboard (deterministic rules on
- * the identified name; AI suggestions with owner review for what remains).
+ * the canonical name; AI suggestions with owner review for what remains).
  */
 import { cleanDescription, type SuggestRequestItem } from '../../src/analytics/categories/suggestProtocol'
-import { isUsableIdentity, type IdentifyResponse, type IdentifyResult, type ProductIdentity } from '../../src/analytics/products/identityProtocol'
+import {
+  isUsableIdentity,
+  type IdentifyResponse,
+  type IdentifyResult,
+  type ProductIdentity,
+  type ResolutionBasis,
+  type UnresolvedResult,
+} from '../../src/analytics/products/identityProtocol'
 import type { AiBinding } from '../ai/categorySuggest'
 import { PRODUCT_NORMALIZATION_MODEL } from '../ai/config'
 import type { SqlDatabase } from '../db'
 import { cleanProductTitle, pickCandidate, searchQueries, type Candidate, type WebSearch } from './search'
 
-/** A "not found" result is not searched again for this long. */
-export const NOT_FOUND_RETRY_MS = 30 * 24 * 60 * 60 * 1000
+/** An unresolved item number (weak evidence or nothing found) is not searched again for this long. */
+export const UNRESOLVED_RETRY_MS = 30 * 24 * 60 * 60 * 1000
 
 type Row = {
   item_number: string
-  status: 'identified' | 'provisional' | 'not_found'
+  status: 'resolved' | 'unresolved'
   receipt_description: string
-  normalized_name: string | null
+  canonical_name: string | null
   brand: string | null
   product_type: string | null
-  source_url: string | null
-  image_url: string | null
   confidence: number
-  evidence: ProductIdentity['evidence']
-  evidence_sources: number
-  corroborating_url: string | null
+  resolution_basis: ResolutionBasis | null
+  last_outcome: 'provisional' | 'not_found' | null
   method: string
-  looked_up_at: string
+  resolved_at: string | null
+  last_attempt_at: string
   retry_after: string | null
 }
 
-export function rowToIdentity(r: Row): ProductIdentity {
+const COLUMNS =
+  'item_number, status, receipt_description, canonical_name, brand, product_type, confidence, resolution_basis, last_outcome, method, resolved_at, last_attempt_at, retry_after'
+
+function rowToIdentity(r: Row): ProductIdentity | null {
+  if (r.status !== 'resolved' || !r.canonical_name || !r.resolution_basis || !r.resolved_at) return null
   return {
     itemNumber: r.item_number,
-    status: r.status,
+    status: 'resolved',
     receiptDescription: r.receipt_description,
-    normalizedName: r.normalized_name,
+    canonicalName: r.canonical_name,
     brand: r.brand,
     productType: r.product_type,
-    sourceUrl: r.source_url,
-    imageUrl: r.image_url,
     confidence: r.confidence,
-    evidence: r.evidence,
-    evidenceSources: r.evidence_sources,
-    corroboratingUrl: r.corroborating_url,
+    basis: r.resolution_basis,
     method: r.method,
-    lookedUpAt: r.looked_up_at,
+    resolvedAt: r.resolved_at,
   }
 }
 
-const COLUMNS =
-  'item_number, status, receipt_description, normalized_name, brand, product_type, source_url, image_url, confidence, evidence, evidence_sources, corroborating_url, method, looked_up_at, retry_after'
+function rowToResult(r: Row): IdentifyResult {
+  const identity = rowToIdentity(r)
+  if (identity) return { ...identity, cached: true }
+  return { itemNumber: r.item_number, status: 'unresolved', outcome: r.last_outcome ?? 'not_found', candidateName: null, retryAfter: r.retry_after ?? '', cached: true }
+}
 
+/** Our resolved catalog (what the dashboard loads with the dataset). */
 export async function listIdentities(db: SqlDatabase): Promise<ProductIdentity[]> {
-  // Identified and provisional (provisional is shown for transparency but never used automatically).
-  const rows = await db.all<Row>(`SELECT ${COLUMNS} FROM product_identities WHERE status IN ('identified', 'provisional') ORDER BY item_number LIMIT 20000`)
-  return rows.map(rowToIdentity)
+  const rows = await db.all<Row>(`SELECT ${COLUMNS} FROM product_identities WHERE status = 'resolved' ORDER BY item_number LIMIT 20000`)
+  return rows.map(rowToIdentity).filter((i): i is ProductIdentity => i !== null)
 }
 
 type Normalized = { normalizedName: string; brand: string | null; productType: string | null }
@@ -147,29 +162,34 @@ export async function normalizeWithAi(
 
 export type IdentifyDeps = { db: SqlDatabase; search: WebSearch | null; ai?: AiBinding | undefined; now: Date }
 
+const UPSERT = `INSERT INTO product_identities (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT (item_number) DO UPDATE SET status = excluded.status, receipt_description = excluded.receipt_description,
+    canonical_name = excluded.canonical_name, brand = excluded.brand, product_type = excluded.product_type,
+    confidence = excluded.confidence, resolution_basis = excluded.resolution_basis, last_outcome = excluded.last_outcome,
+    method = excluded.method, resolved_at = excluded.resolved_at, last_attempt_at = excluded.last_attempt_at,
+    retry_after = excluded.retry_after
+  WHERE product_identities.status <> 'resolved'`
+
 export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestRequestItem[]): Promise<IdentifyResponse> {
   const { db, search, ai, now } = deps
   const numbers = items.map((i) => i.itemNumber)
-  const cachedRows = await db.all<Row>(
-    `SELECT ${COLUMNS} FROM product_identities WHERE item_number IN (${numbers.map(() => '?').join(', ')})`,
-    numbers,
-  )
-  const cache = new Map(cachedRows.map((r) => [r.item_number, r]))
+  const rows = await db.all<Row>(`SELECT ${COLUMNS} FROM product_identities WHERE item_number IN (${numbers.map(() => '?').join(', ')})`, numbers)
+  const local = new Map(rows.map((r) => [r.item_number, r]))
   const results = new Map<string, IdentifyResponse['results'][number]>()
   const toSearch: SuggestRequestItem[] = []
 
   for (const item of items) {
-    const row = cache.get(item.itemNumber)
-    const fresh = row && (row.status === 'identified' || (row.retry_after !== null && row.retry_after > now.toISOString()))
-    // Without a search provider, even a stale provisional/not_found row is better than nothing.
-    if (row && (fresh || !search)) results.set(item.itemNumber, { ...rowToIdentity(row), cached: true })
+    const row = local.get(item.itemNumber)
+    // Resolved → our own record, forever. Unresolved → wait for retry_after (or forever without a provider).
+    const settled = row && (row.status === 'resolved' || !search || (row.retry_after !== null && row.retry_after > now.toISOString()))
+    if (row && settled) results.set(item.itemNumber, rowToResult(row))
     else if (!search) results.set(item.itemNumber, { itemNumber: item.itemNumber, status: 'unavailable', reason: 'Web search is not configured.' })
     else toSearch.push(item)
   }
 
-  // Targeted search, one item at a time; the second query only if the first finds nothing.
-  const found: { itemNumber: string; receiptDescription: string; candidate: Candidate }[] = []
-  const notFound: { itemNumber: string; receiptDescription: string }[] = []
+  // Transient discovery: search results exist only in this loop's memory.
+  const strong: { itemNumber: string; receiptDescription: string; candidate: Candidate }[] = []
+  const weak: { itemNumber: string; receiptDescription: string; outcome: 'provisional' | 'not_found'; candidateName: string | null }[] = []
   for (const item of toSearch) {
     const receiptDescription = item.descriptions[0]!
     try {
@@ -178,18 +198,22 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
         candidate = pickCandidate(item.itemNumber, await search!.search(query))
         if (candidate) break
       }
-      if (candidate) found.push({ itemNumber: item.itemNumber, receiptDescription, candidate })
-      else notFound.push({ itemNumber: item.itemNumber, receiptDescription })
+      if (candidate && candidate.evidence !== 'single-source') strong.push({ itemNumber: item.itemNumber, receiptDescription, candidate })
+      else
+        weak.push({
+          itemNumber: item.itemNumber,
+          receiptDescription,
+          outcome: candidate ? 'provisional' : 'not_found',
+          candidateName: candidate ? cleanProductTitle(candidate.result.title) || null : null,
+        })
     } catch (error) {
       console.error('search_error', error instanceof Error ? error.message.slice(0, 40) : 'unknown')
       results.set(item.itemNumber, { itemNumber: item.itemNumber, status: 'unavailable', reason: 'The web search failed. You can try again later.' })
     }
   }
 
-  // Optional AI normalization, in one call, only for identities with strong evidence.
-  // It may clean names; it never changes status, evidence or confidence.
+  // Resolve strong candidates into our own record (optional AI clean-up, one call; never changes confidence).
   let normalized = new Map<string, Normalized>()
-  const strong = found.filter((f) => f.candidate.evidence !== 'single-source')
   if (ai && strong.length > 0) {
     try {
       normalized = await normalizeWithAi(ai, strong)
@@ -199,91 +223,59 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
   }
 
   const at = now.toISOString()
-  const fresh: IdentifyResult[] = [
-    ...found.map((f): IdentifyResult => {
-      const n = normalized.get(f.itemNumber)
-      return {
-        itemNumber: f.itemNumber,
-        // One non-Costco source is only a possible match: kept for transparency, never used automatically.
-        status: f.candidate.evidence === 'single-source' ? 'provisional' : 'identified',
-        receiptDescription: f.receiptDescription,
-        normalizedName: n?.normalizedName ?? (cleanProductTitle(f.candidate.result.title) || f.receiptDescription),
-        brand: n?.brand ?? null,
-        productType: n?.productType ?? null,
-        sourceUrl: f.candidate.result.url,
-        imageUrl: f.candidate.result.imageUrl,
-        confidence: f.candidate.confidence,
-        evidence: f.candidate.evidence,
-        evidenceSources: f.candidate.sources,
-        corroboratingUrl: f.candidate.corroboratingUrl,
-        method: n ? 'web-search+ai' : 'web-search',
-        lookedUpAt: at,
-        cached: false,
-      }
-    }),
-    ...notFound.map(
-      (f): IdentifyResult => ({
-        itemNumber: f.itemNumber,
-        status: 'not_found',
-        receiptDescription: f.receiptDescription,
-        normalizedName: null,
-        brand: null,
-        productType: null,
-        sourceUrl: null,
-        imageUrl: null,
-        confidence: 0,
-        evidence: null,
-        evidenceSources: 0,
-        corroboratingUrl: null,
-        method: 'web-search',
-        lookedUpAt: at,
-        cached: false,
-      }),
-    ),
+  const retryAfter = new Date(now.getTime() + UNRESOLVED_RETRY_MS).toISOString()
+  const resolved: ProductIdentity[] = strong.map((f) => {
+    const n = normalized.get(f.itemNumber)
+    return {
+      itemNumber: f.itemNumber,
+      status: 'resolved',
+      receiptDescription: f.receiptDescription,
+      canonicalName: n?.normalizedName ?? (cleanProductTitle(f.candidate.result.title) || f.receiptDescription),
+      brand: n?.brand ?? null,
+      productType: n?.productType ?? null,
+      confidence: f.candidate.confidence,
+      basis: f.candidate.evidence as ResolutionBasis,
+      method: n ? 'web-search+ai' : 'web-search',
+      resolvedAt: at,
+    }
+  })
+  const unresolved: UnresolvedResult[] = weak.map((w) => ({
+    itemNumber: w.itemNumber,
+    status: 'unresolved',
+    outcome: w.outcome,
+    candidateName: w.candidateName, // shown to the owner now; never stored
+    retryAfter,
+    cached: false,
+  }))
+
+  // Persist ONLY our own outcome. Columns hold no search-result content by construction.
+  const statements = [
+    ...resolved.map((r) => ({
+      sql: UPSERT,
+      params: [r.itemNumber, 'resolved', r.receiptDescription, r.canonicalName, r.brand, r.productType, r.confidence, r.basis, null, r.method, at, at, null],
+    })),
+    ...weak.map((w) => ({
+      sql: UPSERT,
+      params: [w.itemNumber, 'unresolved', w.receiptDescription, null, null, null, 0, null, w.outcome, 'web-search', null, at, retryAfter],
+    })),
   ]
-  if (fresh.length > 0) {
-    const retryAfter = new Date(now.getTime() + NOT_FOUND_RETRY_MS).toISOString()
-    await db.batch(
-      fresh.map((r) => ({
-        sql: `INSERT INTO product_identities (${COLUMNS}, search_provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT (item_number) DO UPDATE SET status = excluded.status, receipt_description = excluded.receipt_description,
-                normalized_name = excluded.normalized_name, brand = excluded.brand, product_type = excluded.product_type,
-                source_url = excluded.source_url, image_url = excluded.image_url, confidence = excluded.confidence,
-                evidence = excluded.evidence, evidence_sources = excluded.evidence_sources, corroborating_url = excluded.corroborating_url,
-                method = excluded.method, looked_up_at = excluded.looked_up_at, retry_after = excluded.retry_after,
-                search_provider = excluded.search_provider`,
-        params: [
-          r.itemNumber,
-          r.status,
-          r.receiptDescription,
-          r.normalizedName,
-          r.brand,
-          r.productType,
-          r.sourceUrl,
-          r.imageUrl,
-          r.confidence,
-          r.evidence,
-          r.evidenceSources,
-          r.corroboratingUrl,
-          r.method,
-          r.lookedUpAt,
-          // Weak or missing evidence is re-checked later; a usable identity is kept.
-          r.status === 'identified' ? null : retryAfter,
-          search?.name ?? null,
-        ],
-      })),
-    )
-    for (const r of fresh) results.set(r.itemNumber, r)
-  }
+  if (statements.length > 0) await db.batch(statements)
+  for (const r of resolved) results.set(r.itemNumber, { ...r, cached: false })
+  for (const u of unresolved) results.set(u.itemNumber, u)
   return { searchConfigured: search !== null, results: items.map((i) => results.get(i.itemNumber)!) }
 }
 
-/** Cached identities for the AI suggestion prompt: usable ones only (Costco.com or corroborated), never provisional. */
+/** Resolved, usable identities for the AI suggestion prompt. */
 export async function identitiesFor(db: SqlDatabase, itemNumbers: readonly string[]): Promise<Map<string, ProductIdentity>> {
   if (itemNumbers.length === 0) return new Map()
   const rows = await db.all<Row>(
-    `SELECT ${COLUMNS} FROM product_identities WHERE status = 'identified' AND item_number IN (${itemNumbers.map(() => '?').join(', ')})`,
+    `SELECT ${COLUMNS} FROM product_identities WHERE status = 'resolved' AND item_number IN (${itemNumbers.map(() => '?').join(', ')})`,
     [...itemNumbers],
   )
-  return new Map(rows.map(rowToIdentity).filter(isUsableIdentity).map((i) => [i.itemNumber, i]))
+  return new Map(
+    rows
+      .map((r) => rowToIdentity(r) ?? undefined)
+      .filter(isUsableIdentity)
+      .map((i) => [i.itemNumber, i]),
+  )
 }

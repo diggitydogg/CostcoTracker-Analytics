@@ -64,7 +64,7 @@ export function Dashboard({
   suggester?: BatchCategorySuggester
   /** Cloud mode only: identifies item numbers (cache first, then targeted web search) before AI suggestions. */
   identifier?: BatchIdentifier
-  /** Cached product identities (public product names by item number); rules may match them after receipt text. */
+  /** Our resolved local product catalog (by item number); rules may match canonical names after receipt text. */
   productIdentities?: ProductIdentities
   /** Receives identities found during a review session. */
   onIdentities?: (found: ProductIdentity[]) => void

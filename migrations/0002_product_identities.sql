@@ -1,31 +1,41 @@
--- Product identity cache: one row per Costco item number, filled by a
--- targeted public web search (POST /api/products/identify). It holds only
--- public product information, never purchase data, and is not part of
--- Export V1 or the sync protocol, so iOS sync never touches it. It can be
--- deleted at any time; items are simply looked up again on request.
+-- Our own local Costco product catalog: one row per item number, holding
+-- OUR resolved product record for that SKU. It is not a copy of any search
+-- provider's results:
+-- - web search (Brave) is used only transiently, inside one identify request,
+--   to discover the product;
+-- - no search-result titles, snippets, URLs, thumbnails, rankings or
+--   responses are stored here (there are no columns for them);
+-- - a resolved SKU is never searched again.
+-- Public product information only; never purchase data. Not part of Export V1
+-- or the sync protocol, so iOS sync never touches it.
 CREATE TABLE product_identities (
   item_number TEXT PRIMARY KEY,
-  -- 'identified': Costco's own page, or 2+ independent agreeing sites, name this exact item number.
-  -- 'provisional': only one non-Costco site does; shown, but never used for categorization.
-  -- 'not_found': no result names it. Provisional and not_found are retried after retry_after.
-  status TEXT NOT NULL CHECK (status IN ('identified', 'provisional', 'not_found')),
-  -- The (abbreviated) receipt description that was searched.
+  -- 'resolved': we established the product (strong evidence) — permanent, never re-searched.
+  -- 'unresolved': the last lookup found only weak evidence or nothing; retried after retry_after.
+  status TEXT NOT NULL CHECK (status IN ('resolved', 'unresolved')),
+  -- From our own receipt data (the text we looked up), not from search results.
   receipt_description TEXT NOT NULL,
-  normalized_name TEXT,
+  -- Our canonical product record (resolved rows only).
+  canonical_name TEXT,
   brand TEXT,
   product_type TEXT,
-  source_url TEXT,
-  image_url TEXT,
+  -- Our confidence in the resolution, from the evidence class (never raised by AI).
   confidence REAL NOT NULL DEFAULT 0 CHECK (confidence >= 0 AND confidence <= 1),
-  -- Why the identity was accepted (traceability): 'costco.com', 'corroborated' or 'single-source'.
-  evidence TEXT CHECK (evidence IS NULL OR evidence IN ('costco.com', 'corroborated', 'single-source')),
-  -- Distinct sites whose result named the exact item number, and the agreeing second source if any.
-  evidence_sources INTEGER NOT NULL DEFAULT 0,
-  corroborating_url TEXT,
-  -- How the identity was derived: 'web-search' or 'web-search+ai'.
+  -- Why we accepted it: Costco's own page named the item number, or 2+ independent agreeing sources did.
+  resolution_basis TEXT CHECK (resolution_basis IS NULL OR resolution_basis IN ('costco.com', 'corroborated')),
+  -- Unresolved rows: what the last lookup found ('provisional' = one non-Costco source only).
+  last_outcome TEXT CHECK (last_outcome IS NULL OR last_outcome IN ('provisional', 'not_found')),
+  -- How the mapping was established: 'web-search' or 'web-search+ai' (AI-normalized name).
   method TEXT NOT NULL,
-  search_provider TEXT,
-  looked_up_at TEXT NOT NULL,
+  resolved_at TEXT,
+  last_attempt_at TEXT NOT NULL,
   retry_after TEXT,
-  CHECK (status = 'not_found' OR normalized_name IS NOT NULL)
+  CHECK (
+    (status = 'resolved' AND canonical_name IS NOT NULL AND resolution_basis IS NOT NULL
+      AND resolved_at IS NOT NULL AND last_outcome IS NULL AND retry_after IS NULL)
+    OR
+    -- An unresolved row can hold no product details at all: weak evidence is never saved as an identity.
+    (status = 'unresolved' AND canonical_name IS NULL AND brand IS NULL AND product_type IS NULL
+      AND resolution_basis IS NULL AND confidence = 0 AND last_outcome IS NOT NULL AND retry_after IS NOT NULL)
+  )
 );

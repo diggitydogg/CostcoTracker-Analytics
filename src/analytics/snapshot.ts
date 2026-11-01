@@ -25,7 +25,7 @@ export type AnalyticsOptions = {
   asOf?: string | null
   categoryOverrides?: CategoryOverrides
   categoryRules?: readonly CategoryRule[]
-  /** Cached product identities (web search), keyed by item number. Rules may match their names after receipt descriptions. */
+  /** Our resolved local product catalog, keyed by item number. Rules may match canonical names after receipt descriptions. */
   productIdentities?: ProductIdentities
   thresholds?: Partial<AnalyticsThresholds>
   source?: DatasetSourceInfo

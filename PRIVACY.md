@@ -62,7 +62,11 @@ AI output is a suggested category, never source truth. Nothing changes until the
 
 ## Product identification (web search)
 
-Optional and cloud-only. It runs only when the owner clicks **Suggest categories with AI**, which first looks up Uncategorized item numbers. For an item number not already in the cache, the server sends **only** the word "Costco", the Costco item number and the abbreviated receipt description to the configured web search provider (Brave Search API, via the owner's own `SEARCH_API_KEY`). This is the only feature that sends data to a party other than Cloudflare. No barcode, order number, date, warehouse, price, quantity, purchase history, account or device data is sent, and no website (including costco.com) is fetched or scraped. Results (public product name, brand, type, source URL) are cached in the owner's D1 only as far as the search provider's terms allow, so each item number is looked up once. Choosing a provider whose terms permit this is an open item before release. A single non-Costco source is never used automatically. Details: `docs/PRODUCT_IDENTIFICATION.md`.
+Optional and cloud-only. It runs only when the owner clicks **Suggest categories with AI**, which first looks up Uncategorized item numbers that are not yet in the owner's local product catalog.
+
+For such an item number, the server sends **only** the word "Costco", the Costco item number and the abbreviated receipt description to the Brave Search API, using the owner's own `SEARCH_API_KEY`. This is the only feature that sends data to a party other than Cloudflare. It never sends a barcode, order number, date, warehouse, price, quantity, purchase history, or account or device data. No website, including costco.com, is fetched or scraped.
+
+Search results are used **transiently**, inside that one request, to resolve the product. They are then discarded: no titles, snippets, URLs, thumbnails, rankings or responses are stored. What is kept in the owner's D1 is the owner's own catalog record for the item number: canonical name, brand, product type, confidence, how it was resolved, and timestamps. A resolved item number is never searched again. A match supported by only one non-Costco source is not saved as an identity. Details: `docs/PRODUCT_IDENTIFICATION.md`.
 
 ## Demo / testing data
 

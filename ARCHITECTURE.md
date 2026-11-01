@@ -29,7 +29,7 @@ src/
   test/              Test setup and fixture helpers
 server/              Portable API handler (auth, sync, export, optional AI category suggestions) over a 4-method SQL interface
   ai/                  Workers AI category suggestions: model config (config.ts), prompt, output validation
-  products/            Product identification by item number: D1 cache, targeted web search, optional AI normalization (docs/PRODUCT_IDENTIFICATION.md)
+  products/            Product identification by item number: local D1 product catalog, transient targeted web search, optional AI normalization (docs/PRODUCT_IDENTIFICATION.md)
   adapters/            d1.ts (Cloudflare) and nodeSqlite.ts (tests / self-hosting)
 functions/api/       Cloudflare Pages Function entry (the only Cloudflare-specific file)
 migrations/          D1 / SQLite schema

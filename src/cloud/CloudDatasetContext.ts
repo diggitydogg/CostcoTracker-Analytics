@@ -24,7 +24,7 @@ export type CloudDatasetState = {
   loadedAt: Date | null
   /** True when the cloud is known to have changed since `dataset` was loaded. */
   stale: boolean
-  /** Cached product identities (public, from web search), loaded with the dataset. */
+  /** Our resolved local product catalog, loaded with the dataset. */
   identities: ProductIdentities
 }
 

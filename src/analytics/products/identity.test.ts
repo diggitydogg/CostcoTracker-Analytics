@@ -7,19 +7,15 @@ import { identityTexts, type ProductIdentity } from './identityProtocol'
 
 const identity = (itemNumber: string, name: string, extra: Partial<ProductIdentity> = {}): ProductIdentity => ({
   itemNumber,
-  status: 'identified',
+  status: 'resolved',
   receiptDescription: 'X',
-  normalizedName: name,
+  canonicalName: name,
   brand: null,
   productType: null,
-  sourceUrl: 'https://www.costco.com/x.html',
-  imageUrl: null,
   confidence: 0.9,
-  evidence: 'costco.com',
-  evidenceSources: 1,
-  corroboratingUrl: null,
+  basis: 'costco.com',
   method: 'web-search',
-  lookedUpAt: '2026-11-01T00:00:00.000Z',
+  resolvedAt: '2026-11-01T00:00:00.000Z',
   ...extra,
 })
 
@@ -45,13 +41,11 @@ describe('deterministic rules on identified products', () => {
 
   it('uses only identities backed by Costco.com or two agreeing independent sources', () => {
     expect(identityTexts(identity('1', 'Anker Power Bank', { productType: 'power bank' }))).toEqual(['Anker Power Bank', 'power bank'])
-    expect(identityTexts(identity('1', 'Anker Power Bank', { evidence: 'corroborated', evidenceSources: 2, confidence: 0.8 }))).toEqual(['Anker Power Bank'])
-    // One non-Costco page is never enough, whatever the stored status or confidence says.
-    expect(identityTexts(identity('1', 'Anker Power Bank', { status: 'provisional', evidence: 'single-source', confidence: 0.4 }))).toEqual([])
-    expect(identityTexts(identity('1', 'Anker Power Bank', { evidence: 'single-source', confidence: 0.9 }))).toEqual([])
-    expect(identityTexts(identity('1', 'Anker Power Bank', { evidence: null }))).toEqual([])
+    expect(identityTexts(identity('1', 'Anker Power Bank', { basis: 'corroborated', confidence: 0.8 }))).toEqual(['Anker Power Bank'])
+    // Defensive: a record that is somehow not trusted is never used.
+    expect(identityTexts(identity('1', 'Anker Power Bank', { basis: 'single-source' as never }))).toEqual([])
     expect(identityTexts(identity('1', 'Anker Power Bank', { confidence: 0.5 }))).toEqual([])
-    expect(identityTexts({ ...identity('1', 'x'), status: 'not_found', normalizedName: null, evidence: null })).toEqual([])
+    expect(identityTexts({ ...identity('1', 'x'), status: 'unresolved' as never })).toEqual([])
     expect(identityTexts(undefined)).toEqual([])
   })
 
@@ -64,16 +58,14 @@ describe('deterministic rules on identified products', () => {
     expect(before.items.byItemNumber.get('101')!.category.categoryId).toBe('uncategorized')
     const s = buildAnalyticsSnapshot(data, { productIdentities: { '101': identity('101', 'Anker SOLIX C1000 Portable Power Station') } })
     expect(s.items.byItemNumber.get('101')!.category).toMatchObject({ categoryId: 'electronics', basis: 'identity' })
-    expect(s.items.byItemNumber.get('101')!.identity?.sourceUrl).toBe('https://www.costco.com/x.html')
+    expect(s.items.byItemNumber.get('101')!.identity?.basis).toBe('costco.com')
     expect(s.items.byItemNumber.get('100')!.category).toMatchObject({ categoryId: 'paper-goods', basis: 'receipt' })
     expect(s.categories.categories.reduce((t, c) => t + c.spendCents, 0)).toBe(s.spending.lifetime.grossCents)
     // Purchase analytics are untouched by identities.
     expect(s.spending).toEqual(before.spending)
-    // A provisional (single-source) identity is shown but does not categorize.
-    const p = buildAnalyticsSnapshot(data, {
-      productIdentities: { '101': identity('101', 'Anker SOLIX C1000 Portable Power Station', { status: 'provisional', evidence: 'single-source', confidence: 0.4 }) },
-    })
+    // A record below the usable confidence is shown but does not categorize.
+    const p = buildAnalyticsSnapshot(data, { productIdentities: { '101': identity('101', 'Anker SOLIX C1000 Portable Power Station', { confidence: 0.5 }) } })
     expect(p.items.byItemNumber.get('101')!.category.categoryId).toBe('uncategorized')
-    expect(p.items.byItemNumber.get('101')!.identity?.status).toBe('provisional')
+    expect(p.items.byItemNumber.get('101')!.identity?.canonicalName).toBe('Anker SOLIX C1000 Portable Power Station')
   })
 })

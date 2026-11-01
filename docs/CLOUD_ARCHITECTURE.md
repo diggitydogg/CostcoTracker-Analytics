@@ -60,7 +60,7 @@ What stays the same:
 
 ## 2. D1 schema (`migrations/0001_initial.sql`, plus `0002_product_identities.sql`)
 
-`0002` adds `product_identities`: a cache of public product information by Costco item number, filled by owner-triggered web search. It is outside Export V1 and sync. See `docs/PRODUCT_IDENTIFICATION.md`.
+`0002` adds `product_identities`: the owner's own local product catalog (one resolved record per Costco item number), established once by an owner-triggered, transient web search. It stores no search-result content and is outside Export V1 and sync. See `docs/PRODUCT_IDENTIFICATION.md`.
 
 ### General rules
 - **Money** is stored as INTEGER cents.
@@ -367,6 +367,6 @@ The Export V1 fields only:
 | History beyond ~100k written rows per day, or >500 MB | D1 free caps | A bootstrap spreads across days. Size would take decades. |
 | Longer point-in-time recovery | Time Travel retention is longer on paid | Use exported backups instead. |
 | AI category suggestions | Workers AI beyond its free allocation (10,000 neurons/day) | Optional, owner-triggered only, bounded (25 items per request, 100 per click, per-isolate rate limit). On Workers Free, requests beyond the daily allocation fail rather than being charged; Workers Paid charges usage above it. The binding is added manually on the Pages project. See `docs/AI_CATEGORY_SUGGESTIONS.md`. |
-| Product identification web search | A search API key (third-party provider; check its free tier) | Optional (`SEARCH_API_KEY`), owner-triggered, cached per item number, at most 2 queries per new item. See `docs/PRODUCT_IDENTIFICATION.md`. |
+| Product identification web search | A search API key (third-party provider; check its free tier) | Optional (`SEARCH_API_KEY`), owner-triggered, each item number resolved once into the local catalog (results used transiently), at most 2 queries per lookup. See `docs/PRODUCT_IDENTIFICATION.md`. |
 | Cloudflare Access | Zero Trust Free covers ≤50 users, but signup may ask for billing details | Optional layer, not required. |
 | Email or alerting | Third-party email services | Not planned. |

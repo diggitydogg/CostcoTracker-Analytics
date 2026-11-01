@@ -33,23 +33,12 @@ export function ItemDetail({ itemNumber }: { itemNumber: string }) {
         )}
         {item.identity && (
           <p className="text-xs text-slate-600" data-testid="product-identity">
-            {item.identity.status === 'provisional' ? 'Possible match by item number (not used for categories): ' : 'Identified by item number as '}
-            <span className="font-medium text-slate-900">{item.identity.normalizedName}</span>
+            In your product catalog as <span className="font-medium text-slate-900">{item.identity.canonicalName}</span>
             {item.identity.brand && ` · ${item.identity.brand}`}
-            {item.identity.productType && ` · ${item.identity.productType}`} · {share(item.identity.confidence, 0)} confidence ·{' '}
-            {item.identity.evidence === 'costco.com'
-              ? "Costco's own page names this item number"
-              : item.identity.evidence === 'corroborated'
-                ? `${count(item.identity.evidenceSources)} independent sites name this item number and agree`
-                : 'only one non-Costco site names this item number'}
-            {item.identity.sourceUrl && (
-              <>
-                {' · '}
-                <a href={item.identity.sourceUrl} target="_blank" rel="noreferrer noopener" className="text-sky-800 underline">
-                  source
-                </a>
-              </>
-            )}
+            {item.identity.productType && ` · ${item.identity.productType}`} · {share(item.identity.confidence, 0)} confidence · resolved{' '}
+            {item.identity.basis === 'costco.com' ? "from Costco's own page for this item number" : 'from two independent sources that agree on this item number'} on{' '}
+            {date(item.identity.resolvedAt)}
+            {item.identity.method === 'web-search+ai' ? ' (name normalized by AI)' : ''}
           </p>
         )}
       </div>

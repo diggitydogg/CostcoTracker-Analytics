@@ -230,19 +230,15 @@ describe('AI category suggestions — review workflow', () => {
 describe('identify by item number before asking the AI', () => {
   const identity = (itemNumber: string, name: string): ProductIdentity => ({
     itemNumber,
-    status: 'identified',
+    status: 'resolved',
     receiptDescription: 'X',
-    normalizedName: name,
+    canonicalName: name,
     brand: null,
     productType: null,
-    sourceUrl: `https://www.costco.com/p.${itemNumber}.html`,
-    imageUrl: null,
     confidence: 0.9,
-    evidence: 'costco.com',
-    evidenceSources: 1,
-    corroboratingUrl: null,
+    basis: 'costco.com',
     method: 'web-search',
-    lookedUpAt: '2026-11-01T00:00:00.000Z',
+    resolvedAt: '2026-11-01T00:00:00.000Z',
   })
   const FOUND: Record<string, ProductIdentity> = {
     '101': identity('101', 'Anker SOLIX C1000 Portable Power Station'), // a rule matches "ANKER"
@@ -259,7 +255,7 @@ describe('identify by item number before asking the AI', () => {
             ? { ...FOUND[i.itemNumber]!, cached: false }
             : opts.searchConfigured === false
               ? { itemNumber: i.itemNumber, status: 'unavailable' as const, reason: 'Web search is not configured.' }
-              : { ...identity(i.itemNumber, 'x'), status: 'not_found' as const, normalizedName: null, sourceUrl: null, confidence: 0, cached: false },
+              : { itemNumber: i.itemNumber, status: 'unresolved' as const, outcome: 'not_found' as const, candidateName: null, retryAfter: '2026-12-01T00:00:00.000Z', cached: false },
         ),
       }
     })
@@ -311,8 +307,9 @@ describe('identify by item number before asking the AI', () => {
     // That is a rule result, not an override: nothing was written to the override store.
     expect(await store.load()).toEqual({ status: 'loaded', overrides: { '105': { categoryId: 'home', subcategoryId: null } } })
     // The review row shows what the item was identified as, with its source.
-    expect(row('103')).toHaveTextContent('Identified as Brondell Swash Thinline CL2200 Bidet Toilet Seat')
-    expect(within(row('103')).getByRole('link', { name: 'source' })).toHaveAttribute('href', 'https://www.costco.com/p.103.html')
+    // The review row shows our own catalog record (no third-party links are kept).
+    expect(row('103')).toHaveTextContent('In your catalog as Brondell Swash Thinline CL2200 Bidet Toilet Seat (Costco.com)')
+    expect(within(row('103')).queryByRole('link')).not.toBeInTheDocument()
   })
 
   it('shows in the item drawer that a rule matched the identified product name', async () => {
@@ -320,7 +317,8 @@ describe('identify by item number before asking the AI', () => {
     await user.click(within(screen.getByRole('navigation', { name: 'Dashboard sections' })).getByRole('button', { name: 'Items' }))
     await user.click(screen.getAllByRole('button', { name: /ANKERSOLIX/ })[0]!)
     const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByTestId('product-identity')).toHaveTextContent('Identified by item number as Anker SOLIX C1000 Portable Power Station')
+    expect(within(dialog).getByTestId('product-identity')).toHaveTextContent("In your product catalog as Anker SOLIX C1000 Portable Power Station")
+    expect(within(dialog).getByTestId('product-identity')).toHaveTextContent("resolved from Costco's own page for this item number")
     expect(within(dialog).getByTestId('category-basis')).toHaveTextContent('matched “ANKER” in the identified product name')
   })
 
@@ -346,8 +344,8 @@ describe('identify by item number before asking the AI', () => {
       searchConfigured: true,
       results: items.map((i) =>
         i.itemNumber === '101'
-          ? { ...identity('101', 'Anker SOLIX C1000 Portable Power Station'), status: 'provisional' as const, evidence: 'single-source' as const, confidence: 0.4, sourceUrl: 'https://deals.example.org/x', cached: false }
-          : { ...identity(i.itemNumber, 'x'), status: 'not_found' as const, normalizedName: null, sourceUrl: null, evidence: null, evidenceSources: 0, confidence: 0, cached: false },
+          ? { itemNumber: '101', status: 'unresolved' as const, outcome: 'provisional' as const, candidateName: 'Anker SOLIX C1000 Portable Power Station', retryAfter: '2026-12-01T00:00:00.000Z', cached: false }
+          : { itemNumber: i.itemNumber, status: 'unresolved' as const, outcome: 'not_found' as const, candidateName: null, retryAfter: '2026-12-01T00:00:00.000Z', cached: false },
       ),
     }))
     const { user, fn } = await start(identifier)
@@ -357,7 +355,7 @@ describe('identify by item number before asking the AI', () => {
     expect(fn.mock.calls[0]![0].map((i) => i.itemNumber)).toContain('101')
     expect(uncategorizedText()).toContain('ANKERSOLIX')
     expect(await screen.findByTestId('identification-summary')).toHaveTextContent('0 identified by item number, 1 possible match from a single non-Costco source (not used), 3 not found.')
-    expect(await screen.findByTestId('suggestion-101')).toHaveTextContent('Possible match (one non-Costco source, not used): Anker SOLIX C1000 Portable Power Station')
+    expect(await screen.findByTestId('suggestion-101')).toHaveTextContent('Possible match (one non-Costco source, not saved or used): Anker SOLIX C1000 Portable Power Station')
   })
 
   it('notes when web search is not set up', async () => {

@@ -3,11 +3,14 @@
  * `POST /api/products/identify` and `GET /api/products/identities`.
  *
  * Division of labour:
- * - web search answers "what actual product is Costco item #N?" (by item
- *   number + receipt description, once per item number, cached in D1);
- * - deterministic rules then categorize the identified product name;
- * - AI only normalizes search results and suggests categories for what the
- *   rules still cannot place (owner review unchanged).
+ * - web search (Brave) is a TRANSIENT discovery step: it answers "what
+ *   product is Costco item #N?" once, inside one request;
+ * - the outcome is saved as OUR OWN local catalog record (item number →
+ *   canonical name, brand, type, confidence, basis). No search-result content
+ *   is stored, and a resolved item number is never searched again;
+ * - deterministic rules then categorize the canonical product name;
+ * - AI only normalizes the name during resolution and suggests categories
+ *   for what the rules still cannot place (owner review unchanged).
  *
  * Privacy: a request carries only item numbers and receipt descriptions (the
  * same strict item shape as AI suggestions). The search query is built from
@@ -36,35 +39,46 @@ export const identifyRequestSchema = z
 
 export type IdentifyRequestItem = SuggestRequestItem
 
-export type IdentityEvidence = 'costco.com' | 'corroborated' | 'single-source'
+/** Why we accepted a resolution (our own classification of the evidence; no search content). */
+export type ResolutionBasis = 'costco.com' | 'corroborated'
 
-/** A cached product identity, as the dashboard sees it. */
+/**
+ * Our own resolved product record for a Costco item number (local catalog).
+ * It holds no search-result content: no titles, snippets, URLs or images.
+ */
 export type ProductIdentity = {
   itemNumber: string
-  /** identified = usable; provisional = one non-Costco source only (display only, never used automatically). */
-  status: 'identified' | 'provisional' | 'not_found'
+  status: 'resolved'
+  /** The receipt description we looked up (our own data). */
   receiptDescription: string
-  normalizedName: string | null
+  canonicalName: string
   brand: string | null
   productType: string | null
-  sourceUrl: string | null
-  imageUrl: string | null
-  /** Derived only from the evidence class (never raised by AI). */
+  /** Our confidence, from the evidence class only (never raised by AI). */
   confidence: number
-  /** Why the identity was accepted (null for not_found). */
-  evidence: IdentityEvidence | null
-  /** Distinct sites that named the exact item number. */
-  evidenceSources: number
-  /** The agreeing second source, for corroborated identities. */
-  corroboratingUrl: string | null
+  basis: ResolutionBasis
+  /** 'web-search' or 'web-search+ai'. */
   method: string
-  lookedUpAt: string
+  resolvedAt: string
 }
 
-export type IdentifyResult = ProductIdentity & {
-  /** True when served from the cache (no search was made). */
+/** A lookup that did not produce a trusted identity. Nothing about the candidate is stored. */
+export type UnresolvedResult = {
+  itemNumber: string
+  status: 'unresolved'
+  /** 'provisional' = only one non-Costco source (or disagreeing sources); 'not_found' = nothing named the item number. */
+  outcome: 'provisional' | 'not_found'
+  /**
+   * For a fresh provisional lookup only: the candidate product name, shown to
+   * the owner for this session. Transient — never written to D1, and null when
+   * the result comes from the cache.
+   */
+  candidateName: string | null
+  retryAfter: string
   cached: boolean
 }
+
+export type IdentifyResult = (ProductIdentity & { cached: boolean }) | UnresolvedResult
 
 export type IdentifyResponse = {
   /** False when no search provider is configured: unknown items are reported as `unavailable`. */
@@ -75,19 +89,24 @@ export type IdentifyResponse = {
 const text = z.string().max(300).nullable()
 export const productIdentitySchema = z.object({
   itemNumber: z.string(),
-  status: z.enum(['identified', 'provisional', 'not_found']),
+  status: z.literal('resolved'),
   receiptDescription: z.string(),
-  normalizedName: text,
+  canonicalName: z.string().max(300),
   brand: text,
   productType: text,
-  sourceUrl: z.string().max(2048).nullable(),
-  imageUrl: z.string().max(2048).nullable(),
   confidence: z.number().min(0).max(1),
-  evidence: z.enum(['costco.com', 'corroborated', 'single-source']).nullable(),
-  evidenceSources: z.number().int().min(0),
-  corroboratingUrl: z.string().max(2048).nullable(),
+  basis: z.enum(['costco.com', 'corroborated']),
   method: z.string(),
-  lookedUpAt: z.string(),
+  resolvedAt: z.string(),
+})
+
+const unresolvedSchema = z.object({
+  itemNumber: z.string(),
+  status: z.literal('unresolved'),
+  outcome: z.enum(['provisional', 'not_found']),
+  candidateName: text,
+  retryAfter: z.string(),
+  cached: z.boolean(),
 })
 
 export const identifyResponseSchema = z.object({
@@ -96,6 +115,7 @@ export const identifyResponseSchema = z.object({
     .array(
       z.union([
         productIdentitySchema.extend({ cached: z.boolean() }),
+        unresolvedSchema,
         z.object({ itemNumber: z.string(), status: z.literal('unavailable'), reason: z.string() }),
       ]),
     )
@@ -108,15 +128,15 @@ export const identitiesResponseSchema = z.object({ identities: z.array(productId
 export type ProductIdentities = Readonly<Record<string, ProductIdentity>>
 
 /**
- * Whether an identity is strong enough to feed the deterministic rules and
- * the AI prompt: Costco's own page or 2+ agreeing independent sources. A
- * single non-Costco source (provisional) never is.
+ * Whether a local identity may feed the deterministic rules and the AI
+ * prompt: resolved from Costco's own page or 2+ agreeing independent sources.
+ * (Provisional evidence never becomes a local identity in the first place.)
  */
 export function isUsableIdentity(identity: ProductIdentity | undefined): identity is ProductIdentity {
   return (
     !!identity &&
-    identity.status === 'identified' &&
-    (identity.evidence === 'costco.com' || identity.evidence === 'corroborated') &&
+    identity.status === 'resolved' &&
+    (identity.basis === 'costco.com' || identity.basis === 'corroborated') &&
     identity.confidence >= IDENTIFY_LIMITS.minConfidenceForUse
   )
 }
@@ -128,5 +148,5 @@ export function isUsableIdentity(identity: ProductIdentity | undefined): identit
  */
 export function identityTexts(identity: ProductIdentity | undefined): string[] {
   if (!isUsableIdentity(identity)) return []
-  return [identity.normalizedName, identity.productType].filter((t): t is string => typeof t === 'string' && t.trim() !== '')
+  return [identity.canonicalName, identity.productType].filter((t): t is string => typeof t === 'string' && t.trim() !== '')
 }

@@ -1,12 +1,17 @@
 # Product identification by Costco item number
 
-When a Costco item number is available, the system identifies the product with a **targeted web search**, not with AI. AI is used afterwards, only to normalize what the search found and to suggest categories that the deterministic rules still can't place.
+When a Costco item number is available, the product is identified with a **targeted web search**, not with AI. The search is a **transient discovery step**. What we keep is **our own local product catalog**: one resolved record per Costco item number, stored in D1. A resolved item number is never searched again.
+
+```
+unknown SKU ─► Brave lookup (transient) ─► resolve identity in that request ─► our own local catalog record
+then, permanently:   SKU ─► our own local catalog record   (no further searches)
+```
 
 | Question | Tool |
 |---|---|
-| "What actual product is Costco item #1627770?" | Targeted web search, cached by item number |
-| "Given that product, what is its clean name / brand / type?" | Workers AI normalization (optional; falls back to the cleaned search title) |
-| "Which category is it?" | Deterministic rules on the receipt description, then on the identified name; AI suggestion with owner review only if the rules still can't decide |
+| "What actual product is Costco item #1627770?" | Targeted web search, once per item number, used transiently |
+| "What is its clean name / brand / type?" | Resolved during that request: the cleaned result title, optionally normalized by Workers AI |
+| "Which category is it?" | Deterministic rules on the receipt description, then on our canonical product name; AI suggestion with owner review only if the rules still can't decide |
 
 ## Pipeline
 
@@ -14,51 +19,88 @@ When a Costco item number is available, the system identifies the product with a
 Dashboard → Categories → "Suggest categories with AI" (owner click; Uncategorized items only)
   │
   ├─ 1. POST /api/products/identify (≤ 10 items per request: item number + receipt description)
-  │      a. D1 cache lookup (product_identities)          → hit: returned immediately, no search
-  │      b. miss → web search "Costco <item#> <description>", then "Costco \"<item#>\""
+  │      a. local catalog lookup (product_identities)
+  │           resolved → our own record; no search, ever again
+  │           unresolved and before retry_after → no search
+  │      b. otherwise search "Costco <item#> <description>", then "Costco \"<item#>\""
   │         A result counts only if its title, URL or snippet contains the EXACT item number.
-  │      c. optional Workers AI normalization (one call per batch) → name, brand, product type
-  │      d. cache the outcome (identified; or not_found, retried after 30 days)
+  │      c. strong evidence → resolve: canonical name (optionally AI-normalized), brand, type
+  │         weak/no evidence → stays unresolved (outcome + retry time only)
+  │      d. save OUR outcome; discard every search result (titles, snippets, URLs, thumbnails, ranking)
   │
   ├─ 2. Deterministic rules (in the browser, analytics engine)
-  │      receipt descriptions first; if none match, the identified name / product type
-  │      → an item a rule now matches is categorized, with no AI and no override
+  │      receipt descriptions first; if none match, the canonical name / product type
+  │      → an item a rule now matches is categorized (no AI, no override)
   │
   └─ 3. POST /api/categories/suggest for what is still Uncategorized
-         (the model also sees the cached identity as "identifiedAs")
+         (the model also sees our resolved record as "identifiedAs")
          → owner review: Accept / Change / Leave uncategorized (unchanged)
 ```
 
-- On every dashboard load, cached identities are fetched once with the dataset (`GET /api/products/identities`), so rules use them immediately, with no search.
-- In practice a Costco item number is researched once.
+On every dashboard load, the resolved catalog is fetched once with the dataset (`GET /api/products/identities`), so the rules use it immediately, with no search.
+
+## What is persisted versus transient
+
+**Persisted in D1 (`product_identities`).** This is our own resolved record, one row per item number:
+
+| Column | Meaning |
+|---|---|
+| `item_number` | Costco item number (key) |
+| `status` | `resolved` (permanent, never re-searched) or `unresolved` (retried after `retry_after`) |
+| `receipt_description` | The receipt text we looked up. This is our own data |
+| `canonical_name`, `brand`, `product_type` | Our canonical product record (resolved rows only) |
+| `confidence` | Our confidence, from the evidence class only (0.9 Costco.com, 0.8 corroborated) |
+| `resolution_basis` | Why we accepted it: `costco.com` or `corroborated` (our classification, not search content) |
+| `last_outcome` | Unresolved rows: `provisional` (one non-Costco source) or `not_found` |
+| `method` | `web-search` or `web-search+ai` (AI-normalized name) |
+| `resolved_at`, `last_attempt_at`, `retry_after` | Timestamps |
+
+- **Unresolved rows can't hold product details.** A database CHECK constraint enforces this: `canonical_name`, `brand`, `product_type` and `resolution_basis` must be NULL and `confidence` must be 0. Weak evidence therefore can never become a stored identity.
+- **No column can hold search-result content.** A test checks the column names.
+
+**Transient (memory of one request only, never written to D1):**
+- every search result's title, snippet and URL;
+- thumbnail or image URL;
+- the result ranking;
+- the raw Brave response;
+- the candidate name of a provisional match (returned once to the dashboard and shown in that review session);
+- the text sent to Workers AI for normalization.
+
+Tests plant marker strings in snippets, URLs, thumbnails, non-chosen results and provisional titles. They then scan **every table** in D1 to confirm none of them were stored. The dashboard keeps no third-party links either.
 
 ## Design decisions
+1. **A table keyed by item number, not columns on `items`.** `items` stores receipt **lines**: many per SKU, keyed by line ID, and rewritten by iOS sync. `product_identities` (migration `0002`) is our catalog of public product information. It is outside Export V1, the sync protocol and backups.
+2. **Where it plugs in:**
+   - `POST /api/products/identify` (owner-only, strict schema, ≤ 10 items, rate-limited) does the catalog lookup, then transient search, then resolve, then save our outcome.
+   - `GET /api/products/identities` returns resolved records only. `CloudDatasetProvider` loads them with the dataset and keeps them in memory, so tab switches still trigger no downloads.
+   - The analytics engine applies them in `categorize(…, identityTexts)`: the canonical name and type are tried **only after** the receipt descriptions, so no existing rule result changes. Assignments record `basis: 'receipt' | 'identity'`, and the item drawer shows the catalog record and how it was resolved.
+   - The existing AI suggestion endpoint adds resolved records to its prompt.
+3. **Suggestion flow adapted, not replaced.** Same button and session, with an "identify" phase first. Owner review, overrides, limits and privacy are unchanged. If identification fails or search isn't configured, the AI step runs as before.
+4. **Local-file mode** has no identification (no server, no search) and is unaffected.
 
-1. **Where identity data lives.** The schema had no product table.
-   - `items` stores receipt **lines**: many rows per SKU, keyed by line ID and rewritten by iOS sync.
-   - Putting identity columns on `items` would duplicate the data on every line and get overwritten by sync.
-   - So there is a new **`product_identities`** table, keyed by `item_number` (migration `0002_product_identities.sql`). It holds only public product information: name, brand, type, source URL, optional image URL, confidence, method, provider and lookup time.
-   - It is **not** part of Export V1, the sync protocol or the backup. It is a re-derivable cache and can be deleted at any time.
-2. **Where it plugs into the request flow.**
-   - A new owner-only endpoint, `POST /api/products/identify`, does cache lookup → search → normalize → cache.
-   - `GET /api/products/identities` is loaded together with the dataset by `CloudDatasetProvider`. It is kept in memory, so switching tabs still re-downloads nothing.
-   - Rules run in the analytics engine (`categorize(…, identityTexts)`). Identified names are consulted **only after** the receipt descriptions, so no existing rule result changes. The assignment records `basis: 'receipt' | 'identity'`, and the item drawer shows it together with the source link.
-   - AI fallback is the existing suggestion endpoint, which now adds the cached identity to its prompt.
-3. **Adapting the category-suggestion system rather than replacing it.**
-   - Same button, same session.
-   - The session runs an "identify" phase first, then sends to the AI only the items the rules still can't place.
-   - Owner review, overrides, limits and privacy rules are all unchanged.
-   - If the lookup fails or search isn't configured, the AI step still runs as before.
-4. **Local-file mode.** There is no identification there: no server, no search. It is unaffected.
+## Reliability rules (same physical product)
+- A search result counts only if it contains the **exact** item number as a whole number. "16277701" does not match "1627770", and a similar product without the number is rejected.
+- **Evidence during the live lookup decides the outcome:**
+
+  | Evidence (in the request) | Outcome saved | Confidence | Used by rules and the AI prompt? |
+  |---|---|---|---|
+  | Costco's own page names the exact item number | `resolved`, basis `costco.com` | 0.9 | Yes |
+  | 2+ independent sites (different hosts) name it **and** their titles agree (≥ 2 significant shared words) | `resolved`, basis `corroborated` | 0.8 | Yes |
+  | Only one non-Costco site, or sites that disagree | `unresolved`, outcome `provisional` (no details stored) | — | **No.** The candidate name is shown this session as a "possible match (not saved or used)"; the item goes to the AI step; it is looked up again after 30 days |
+  | No result names the item number | `unresolved`, outcome `not_found` | — | No; retried after 30 days |
+
+- Several pages of the same site count as one source.
+- `isUsableIdentity` is the single gate for using a record: `resolved`, basis `costco.com` or `corroborated`, confidence ≥ 0.6.
+- **AI never manufactures certainty.** Confidence comes only from the evidence class. AI normalization runs only on strong candidates, and only renames or describes them; it never changes the outcome or confidence.
+- An unresolved item can later become resolved if stronger evidence appears at a retry. A resolved record is never overwritten by a lookup, because it is never looked up again.
 
 ## Privacy boundary
-
-**Sent to the web search provider:** the literal word "Costco", the Costco item number and the abbreviated receipt description. Nothing else.
-- The request schema is strict: extra fields are rejected with 400.
+**Sent to Brave:** the word "Costco", the Costco item number and the abbreviated receipt description, and nothing else.
+- The request schema is strict (extra fields → 400).
 - Queries are built only from those two values; quotes and `*` are stripped.
 - Tests assert the exact queries.
 
-**Sent to Workers AI for normalization:** item number, receipt description, and the matched search result's title and snippet. All of this is public text.
+**Sent to Workers AI for normalization:** item number, receipt description, and the matched result's title and snippet. This is transient; it is not stored.
 
 **Never sent:**
 - receipt barcode, order numbers, receipt or line IDs;
@@ -67,65 +109,52 @@ Dashboard → Categories → "Suggest categories with AI" (owner click; Uncatego
 - purchase history;
 - account, session or device data and Costco credentials.
 
-**No scraping.** Only the search API is called. Costco's site (or any result page) is never fetched; the system uses only the title, URL, snippet and thumbnail URL that the search API returns.
+See `CLAUDE.md` for the bounded exception.
 
-**Third party.** This is the one feature that sends data outside Cloudflare: item number and description go to the search provider. It runs only after an owner click. See `PRIVACY.md`.
+**No scraping.** Only the search API is called. Costco's site, or any result page, is never fetched.
+
+**Provider terms.** Brave's standard Search API terms allow only transient use of results. That is why results are discarded after each request, and only our own resolved record is kept.
 
 ## Search provider and setup
-
-> **Open issue, do not deploy as-is.** The Brave Search API's standard terms do not allow storing or caching results beyond transient use, unless the plan grants storage rights. The `product_identities` cache stores data derived from results. A provider whose terms clearly permit this (or an architecture that stores only what the terms allow) must be chosen before merge. `CLAUDE.md` now requires that results be stored only as far as the provider's terms explicitly allow.
-
-**Provider:** the Brave Search API, through a small `WebSearch` adapter in `server/products/search.ts` (`GET https://api.search.brave.com/res/v1/web/search`, header `X-Subscription-Token`). Swapping providers means writing one adapter and choosing it in `server/products/config.ts`.
+**Provider:** the Brave Search API, through the `WebSearch` adapter in `server/products/search.ts` (`GET https://api.search.brave.com/res/v1/web/search`, header `X-Subscription-Token`). Swapping providers means writing one adapter and choosing it in `server/products/config.ts`.
 
 **Setup (Cloudflare Pages):**
 1. Apply the migration to D1:
    ```bash
    npm run db:migrate:remote
    ```
-2. Add the secret `SEARCH_API_KEY`, either with `wrangler pages secret put SEARCH_API_KEY` or in **Pages project → Settings → Variables and Secrets** as an encrypted variable. Then redeploy.
-3. Optional: add the Workers AI binding `AI` (see `docs/AI_CATEGORY_SUGGESTIONS.md`) for normalization and category suggestions.
+2. Add the secret `SEARCH_API_KEY` (your Brave Search API key), either with `wrangler pages secret put SEARCH_API_KEY` or in **Pages project → Settings → Variables and Secrets**. Then redeploy.
+3. Optional: add the Workers AI binding `AI` (see `docs/AI_CATEGORY_SUGGESTIONS.md`) for name normalization and category suggestions.
 
-**Without `SEARCH_API_KEY`:**
-- Identification serves cached identities only.
-- Unknown items are reported as `unavailable`, and the dashboard notes that web search is not set up.
-- The AI step runs as before.
-
-**Without the migration:** loading identities fails quietly (none are used); identification requests fail and the AI step runs as before.
+**Fallbacks:**
+- Without `SEARCH_API_KEY`, only the local catalog is used. Unknown items are reported as `unavailable`, and the dashboard notes that web search is not set up.
+- Without the migration, the catalog simply isn't used.
 
 ## Cost and request controls
-- Cache first: an item number is searched once. Results with nothing found are retried after 30 days. A failed search is not cached.
-- At most 2 queries per item; the second only if the first finds nothing.
-- At most 10 items per request and 100 items per click.
-- Best-effort limit of 10 requests per 10 minutes per Workers isolate.
-- At most one AI normalization call per request.
-- Nothing runs in the background.
-- Check your search provider's current free tier and pricing. A few hundred unknown items use a few hundred to about a thousand queries **once**.
-
-## Reliability rules (same physical product)
-- A search result is accepted only if it contains the **exact** item number as a whole number. "16277701" does not match "1627770", and a product that is merely similar but lacks the number is rejected.
-- **Evidence decides confidence.** Every identity records its evidence (`evidence`, `evidence_sources`, `corroborating_url`) so it is clear why it was accepted:
-
-  | Evidence | Status | Confidence | Used by rules and the AI prompt? |
-  |---|---|---|---|
-  | `costco.com`: Costco's own page names the exact item number | `identified` | 0.9 | Yes |
-  | `corroborated`: 2+ independent sites (different hosts) name it **and** their titles agree (≥ 2 significant shared words) | `identified` | 0.8 | Yes |
-  | `single-source`: only one non-Costco site, or sites that disagree | `provisional` | 0.4 | **No.** Shown as "possible match", re-checked after 30 days; the item goes to the AI step like any unknown item |
-
-- Several pages of the same site count as one source.
-- `isUsableIdentity` is the single gate: `identified`, evidence `costco.com` or `corroborated`, confidence ≥ 0.6.
-- **AI never manufactures certainty.** Confidence comes only from the evidence class. AI normalization runs only on usable identities and can only rename them; it never changes status, evidence or confidence.
-- The AI normalizer may only rename and describe the found result. If its output is invalid, the cleaned search title is used.
+- **Local catalog first:** a resolved item number costs zero queries forever. Unresolved items are retried after 30 days. A failed search records nothing.
+- **Small requests:**
+  - at most 2 queries per lookup, the second only if the first finds nothing;
+  - at most 10 items per request and 100 per click;
+  - a best-effort limit of 10 requests per 10 minutes per Workers isolate.
+- **Minimal AI:** at most one AI normalization call per request.
+- **Nothing runs in the background.**
+- **Brave pricing:** $5 per 1,000 requests, with $5 of monthly free credit. A few hundred unknown items use a few hundred to about a thousand queries, once.
 
 ## Next: photo-based return matching (design, not built yet)
 
-The identity cache is the foundation for this. The plan:
-1. `POST /api/products/match-photo`, owner-only. A Workers AI vision model extracts visible text clues from the photo (brand, product name, package text, UPC if readable). The photo itself is not stored.
-2. Candidates come from the owner's own purchase history, which is already in D1 (`items`): item numbers whose cached identity (name, brand, type) or receipt description overlaps the clues, scored deterministically (token overlap, brand match, UPC match when available).
-3. Top candidates without a cached identity are identified first with the same `identifyItems` pipeline: cache, then targeted search by item number.
-4. Only if more than one candidate remains, an AI comparison step ranks them against the photo clues. It returns the best item number and a confidence, or abstains.
-5. The dashboard then shows every purchase of that exact item number (existing item drill-down) so the owner can pick the receipt.
+Our local catalog becomes the source of truth for product identity over time:
+
+```
+photo → visible clues → compare to our own SKU catalog → compare to purchase history → Brave only for previously unknown SKU candidates
+```
+
+1. **Read the photo.** `POST /api/products/match-photo`, owner-only. A Workers AI vision model extracts visible text clues: brand, product name, package text, UPC if readable. The photo is not stored.
+2. **Find candidates.** They come from the owner's own purchase history, already in D1 (`items`): item numbers whose **catalog record** (canonical name, brand, type) or receipt description overlaps the clues. Scoring is deterministic: token overlap, brand match, and UPC match when available.
+3. **Fill gaps.** Candidates without a catalog record are resolved with the same `identifyItems` pipeline, a transient Brave lookup, and saved to our catalog.
+4. **Rank only if needed.** If more than one candidate remains, an AI comparison ranks them against the photo clues. It returns the best item number with a confidence, or abstains.
+5. **Pick the receipt.** The dashboard shows every purchase of that exact item number (the existing item drill-down), so the owner can choose the receipt.
 
 **Privacy for photo matching:**
 - The vision model sees the photo, inside the owner's Cloudflare account.
-- Web search sees only item numbers, descriptions and generic product text from the photo.
+- Brave sees only item numbers, descriptions and generic product text from the photo.
 - Purchase history never leaves D1.

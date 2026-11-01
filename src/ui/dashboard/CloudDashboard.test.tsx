@@ -224,7 +224,7 @@ describe('cloud AI category suggestions (mocked Workers AI)', () => {
 })
 
 describe('cloud product identification (fake web search, mocked Workers AI)', () => {
-  it('identifies by item number once, caches it in D1, and applies the rules from the cache on reload', async () => {
+  it('resolves an item number once into the local catalog, and applies the rules from it on reload without searching again', async () => {
     const queries: string[] = []
     const search = {
       name: 'fake',
@@ -253,9 +253,13 @@ describe('cloud product identification (fake web search, mocked Workers AI)', ()
     expect(aiInputs).toHaveLength(1)
     expect(aiInputs[0]).toContain('You normalize product identities')
     expect(h.requests.some((r) => r.path === '/api/categories/suggest')).toBe(false)
-    expect(h.db.raw.prepare('SELECT item_number, status, normalized_name FROM product_identities').all()).toEqual([
-      { item_number: '9000006', status: 'identified', normalized_name: 'Anker SOLIX C1000 Portable Power Station' },
+    // Our own catalog record only; the search result's URL/snippet were used transiently and discarded.
+    expect(h.db.raw.prepare('SELECT item_number, status, canonical_name, resolution_basis FROM product_identities').all()).toEqual([
+      { item_number: '9000006', status: 'resolved', canonical_name: 'Anker SOLIX C1000 Portable Power Station', resolution_basis: 'costco.com' },
     ])
+    const row = JSON.stringify(h.db.raw.prepare('SELECT * FROM product_identities').all())
+    expect(row).not.toContain('https://')
+    expect(row).not.toContain('Item 9000006')
 
     // Reload: identities come from the D1 cache with the dataset; no new search.
     await user.click(within(screen.getByTestId('dashboard')).getByRole('button', { name: 'Reload dashboard' }))

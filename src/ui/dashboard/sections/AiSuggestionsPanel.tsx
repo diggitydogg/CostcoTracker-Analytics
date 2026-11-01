@@ -48,7 +48,7 @@ export function AiSuggestionsPanel() {
   return (
     <Panel
       title="AI category suggestions"
-      subtitle="Optional. First looks up each Uncategorized item number once with a targeted web search (item number and receipt description only; results are cached). Items the rules can then categorize are done; the rest go to Workers AI in your own Cloudflare account for a suggestion. No prices, dates, stores or receipts are sent. AI suggestions change nothing until you accept them."
+      subtitle="Optional. First looks up each Uncategorized item number once with a targeted web search (item number and receipt description only). Search results are used only to resolve the product and are not kept; only your own catalog record is saved, so each item number is looked up once. Items the rules can then categorize are done; the rest go to Workers AI in your own Cloudflare account for a suggestion. No prices, dates, stores or receipts are sent. AI suggestions change nothing until you accept them."
       actions={
         <button
           type="button"
@@ -159,18 +159,16 @@ export function AiSuggestionsPanel() {
                         <td className="px-2 py-2">
                           <span className="block font-medium text-slate-900">{name}</span>
                           <span className="text-xs text-slate-500">#{sg.itemNumber}</span>
-                          {item?.identity && (
+                          {item?.identity ? (
                             <span className="block text-xs text-slate-600">
-                              {item.identity.status === 'provisional' ? 'Possible match (one non-Costco source, not used):' : 'Identified as'} {item.identity.normalizedName}
-                              {item.identity.sourceUrl && (
-                                <>
-                                  {' · '}
-                                  <a href={item.identity.sourceUrl} target="_blank" rel="noreferrer noopener" className="text-sky-800 underline">
-                                    source
-                                  </a>
-                                </>
-                              )}
+                              In your catalog as {item.identity.canonicalName} ({item.identity.basis === 'costco.com' ? 'Costco.com' : 'two independent sources'})
                             </span>
+                          ) : (
+                            ai.possibleMatches.get(sg.itemNumber) && (
+                              <span className="block text-xs text-slate-600">
+                                Possible match (one non-Costco source, not saved or used): {ai.possibleMatches.get(sg.itemNumber)}
+                              </span>
+                            )
                           )}
                         </td>
                         <td className="px-2 py-2">

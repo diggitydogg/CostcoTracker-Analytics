@@ -15,7 +15,7 @@ export type SuggestionDecision = 'accepted' | 'changed' | 'left'
 export type IdentificationSummary = {
   /** Items with a usable product identity (Costco.com or 2+ agreeing sources) found or confirmed this session. */
   identified: number
-  /** Items with only one non-Costco source: shown as possible matches, never used for categorization. */
+  /** Items with only one non-Costco source: left unresolved (shown as possible matches this session only). */
   provisional: number
   /** Of those, items the deterministic rules now categorize (no AI needed). */
   categorizedByRules: number
@@ -36,6 +36,8 @@ export type SuggestionSession = {
   identification: IdentificationSummary
   /** Non-blocking notes from product identification (e.g. web search not configured). */
   notes: string[]
+  /** Candidate names of provisional (unresolved) lookups, for this session only — never stored. */
+  possibleMatches: ReadonlyMap<string, string>
   errors: string[]
   usage: { requests: number; totalTokens: number | null }
   /** User-triggered only. Sends up to AI_SUGGESTIONS.maxItemsPerRun not-yet-requested items, one batch at a time. */
@@ -63,6 +65,7 @@ export function useSuggestionSession(
   const [progress, setProgress] = useState<SuggestionSession['progress']>(null)
   const [identification, setIdentification] = useState<IdentificationSummary>({ identified: 0, provisional: 0, categorizedByRules: 0, notFound: 0 })
   const [notes, setNotes] = useState<string[]>([])
+  const [possibleMatches, setPossibleMatches] = useState<ReadonlyMap<string, string>>(new Map())
   const [errors, setErrors] = useState<string[]>([])
   const [usage, setUsage] = useState<{ requests: number; totalTokens: number | null }>({ requests: 0, totalTokens: null })
   // Synchronous guards: a double click can never send a batch twice.
@@ -93,9 +96,12 @@ export function useSuggestionSession(
               const res = await identifier(batch)
               if (!res.searchConfigured) setNotes((n) => (n.some((x) => x.startsWith('Web search')) ? n : [...n, 'Web search is not set up, so only previously identified products were used.']))
               for (const r of res.results) {
-                if (r.status === 'identified' || r.status === 'provisional') found.push(r)
-                if (r.status === 'provisional') provisional += 1
-                else if (r.status === 'not_found') notFound += 1
+                if (r.status === 'resolved') found.push(r)
+                else if (r.status === 'unresolved' && r.outcome === 'provisional') {
+                  provisional += 1
+                  const name = r.candidateName
+                  if (name) setPossibleMatches((m) => new Map(m).set(r.itemNumber, name))
+                } else if (r.status === 'unresolved') notFound += 1
               }
             } catch (error) {
               // Identification is an optimization: on failure the AI step still runs.
@@ -110,7 +116,7 @@ export function useSuggestionSession(
           const byRules = new Set(found.filter((f) => identityTexts(f).some((t) => matchRules(t) !== null)).map((f) => f.itemNumber))
           items = all.filter((i) => !byRules.has(i.itemNumber))
           setIdentification((s) => ({
-            identified: s.identified + found.length - provisional,
+            identified: s.identified + found.length,
             provisional: s.provisional + provisional,
             categorizedByRules: s.categorizedByRules + byRules.size,
             notFound: s.notFound + notFound,
@@ -191,7 +197,7 @@ export function useSuggestionSession(
   }, [])
 
   return useMemo(
-    () => ({ suggestions, requested, failed, decisions, running, progress, identification, notes, errors, usage, run, retryFailed, decide }),
-    [suggestions, requested, failed, decisions, running, progress, identification, notes, errors, usage, run, retryFailed, decide],
+    () => ({ suggestions, requested, failed, decisions, running, progress, identification, notes, possibleMatches, errors, usage, run, retryFailed, decide }),
+    [suggestions, requested, failed, decisions, running, progress, identification, notes, possibleMatches, errors, usage, run, retryFailed, decide],
   )
 }

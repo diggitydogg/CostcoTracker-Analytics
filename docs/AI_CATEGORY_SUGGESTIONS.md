@@ -3,11 +3,11 @@
 The deterministic description rules (`src/analytics/categories/rules.ts`) remain the primary, automatic categorizer. AI only **proposes** categories for items that are still **Uncategorized**, and only when the owner asks. The workflow is:
 
 ```
-description rules ─► Uncategorized ─► [owner clicks] identify by item number (cache → web search)
+description rules ─► Uncategorized ─► [owner clicks] identify by item number (local catalog → transient web search)
                   ─► rules on the identified name ─► still Uncategorized ─► Workers AI suggestion ─► owner review ─► existing category override
 ```
 
-The identify step is described in `docs/PRODUCT_IDENTIFICATION.md`. When an item has a cached identity, the AI prompt also receives it as `identifiedAs` (public product name, brand and type found by web search for that exact item number).
+The identify step is described in `docs/PRODUCT_IDENTIFICATION.md`. When an item has a resolved record in the local product catalog, the AI prompt also receives it as `identifiedAs` (our canonical name, brand and type for that exact item number).
 
 - **No silent changes.** AI suggestions never change analytics. A category changes only when the owner clicks **Accept**, **Accept all high-confidence** or **Change**. That writes the same browser-side category override a manual choice in the item drawer writes. Once accepted, the item has an override, so it is no longer Uncategorized and is never sent to the AI again.
 - **Leave uncategorized** and skipped items write nothing.
