@@ -3,12 +3,11 @@
  * reassembles an Export V1 file, and validates it with the same importer used
  * for local files. A backup is only offered if it would re-import cleanly.
  */
-import type { Item, PriceAdjustment, Receipt, Return } from '../domain/export/v1'
 import type { ImportError } from '../domain/import/importExport'
-import { assembleExportV1 } from '../domain/sync/exportAssembly'
-import type { CloudApi, ExportCollectionName, ExportMeta, ExportPage } from './api'
+import type { CloudApi, ExportMeta } from './api'
+import { CloudDatasetInvalidError, fetchCloudDataset, type DatasetProgress } from './cloudDataset'
 
-export type BackupProgress = { fetched: number; total: number; collection: ExportCollectionName | null }
+export type BackupProgress = DatasetProgress
 
 export type CloudBackup = {
   fileName: string
@@ -24,55 +23,19 @@ export class BackupInvalidError extends Error {
   }
 }
 
-const COLLECTIONS: ExportCollectionName[] = ['receipts', 'items', 'returns', 'priceAdjustments']
-
-async function fetchAll<C extends ExportCollectionName>(
-  api: CloudApi,
-  collection: C,
-  onRecords: (n: number) => void,
-  pageSize: number,
-) {
-  const records: unknown[] = []
-  let after: string | null = null
-  do {
-    const page: ExportPage<C> = await api.exportPage(collection, after, pageSize)
-    for (const row of page.records) records.push(row.record)
-    onRecords(page.records.length)
-    after = page.nextCursor
-  } while (after !== null)
-  return records
-}
-
 export async function createCloudBackup(
   api: CloudApi,
   options: { onProgress?: (p: BackupProgress) => void; pageSize?: number } = {},
 ): Promise<CloudBackup> {
-  const pageSize = options.pageSize ?? 1000
-  const meta = await api.exportMeta()
-  const total = meta.counts.receipts + meta.counts.items + meta.counts.returns + meta.counts.priceAdjustments
-  let fetched = 0
-  options.onProgress?.({ fetched, total, collection: null })
-
-  const out: Record<ExportCollectionName, unknown[]> = { receipts: [], items: [], returns: [], priceAdjustments: [] }
-  for (const collection of COLLECTIONS) {
-    out[collection] = await fetchAll(
-      api,
-      collection,
-      (n) => {
-        fetched += n
-        options.onProgress?.({ fetched, total, collection })
-      },
-      pageSize,
-    )
+  let dataset
+  try {
+    dataset = await fetchCloudDataset(api, options)
+  } catch (e) {
+    if (e instanceof CloudDatasetInvalidError) throw new BackupInvalidError(e.importError)
+    throw e
   }
-
-  const { file, validation } = assembleExportV1(meta, {
-    receipts: out.receipts as Receipt[],
-    items: out.items as Item[],
-    returns: out.returns as Return[],
-    priceAdjustments: out.priceAdjustments as PriceAdjustment[],
-  })
-  if (!validation.ok) throw new BackupInvalidError(validation.error)
+  const { file, meta, data } = dataset
+  const out = { receipts: data.receipts, items: data.items, returns: data.returns, priceAdjustments: data.priceAdjustments }
 
   return {
     fileName: `costcotracker-analytics-backup-${meta.exportedAt.slice(0, 10)}.json`,

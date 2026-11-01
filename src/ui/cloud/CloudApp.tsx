@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { createCloudApi, type CloudApi } from '../../cloud/api'
 import { CloudContext } from '../../cloud/CloudContext'
 import { useCloudSession } from '../../cloud/useCloudSession'
+import { CloudInsightsPanel } from '../analytics/CloudInsightsPanel'
 import { BackupPanel } from './BackupPanel'
 import { DevicesPanel } from './DevicesPanel'
 import { ImportPanel } from './ImportPanel'
@@ -10,9 +11,10 @@ import { OverviewPanel } from './OverviewPanel'
 import { Button, Notice } from './primitives'
 import { SyncPanel } from './SyncPanel'
 
-type Tab = 'overview' | 'sync' | 'devices' | 'import' | 'backup'
+type Tab = 'overview' | 'insights' | 'sync' | 'devices' | 'import' | 'backup'
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
+  { id: 'insights', label: 'Insights (preview)' },
   { id: 'sync', label: 'Sync' },
   { id: 'devices', label: 'iPhones' },
   { id: 'import', label: 'Import' },
@@ -88,6 +90,7 @@ export function CloudApp({
             onLogoutEverywhere={session.logoutEverywhere}
           />
         )}
+        {tab === 'insights' && <CloudInsightsPanel />}
         {tab === 'sync' && (
           <SyncPanel onAddDevice={() => setTab('devices')} {...(testOptions.pollMs !== undefined ? { pollMs: testOptions.pollMs } : {})} />
         )}
