@@ -2,7 +2,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { App } from './App'
+import { LocalFileApp } from './LocalFileApp'
 import { DB_NAME, createDatasetStore } from './persistence/datasetStore'
 import { syntheticExportText } from './test/fixtures'
 
@@ -13,7 +13,7 @@ function jsonFile(text: string, name = 'costcotracker-export.json') {
 async function renderApp(factory: IDBFactory | null) {
   const user = userEvent.setup()
   const store = createDatasetStore(factory)
-  const view = render(<App store={store} />)
+  const view = render(<LocalFileApp store={store} />)
   await screen.findByRole('heading', { name: /import your costcotracker export/i }).catch(() => undefined)
   return { user, store, ...view }
 }
@@ -88,7 +88,7 @@ describe('App import flow', () => {
     unmount()
 
     // A new visit with the same browser storage.
-    render(<App store={createDatasetStore(factory)} />)
+    render(<LocalFileApp store={createDatasetStore(factory)} />)
     expect(await screen.findByRole('region', { name: /imported records/i })).toBeInTheDocument()
     expect(screen.getByTestId('storage-status')).toHaveTextContent('Saved on this device')
   })

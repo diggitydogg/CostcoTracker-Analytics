@@ -49,7 +49,7 @@ Requires Node.js 20.19+ (22 LTS recommended).
 
 ```bash
 npm install
-npm run dev        # local dev server
+npm run dev        # UI only (no API: the Cloud tab shows "not available"; "File on this device" works)
 npm test           # unit + component tests (Vitest)
 npm run lint       # ESLint
 npm run build      # type-check and production build
@@ -60,7 +60,7 @@ Cloud API (local, no Cloudflare account needed):
 ```bash
 npm run auth:generate-key   # put the printed digest in .dev.vars (see .dev.vars.example)
 npm run db:migrate:local    # create the local D1 database
-npm run dev:cloud           # SPA + /api/* on http://localhost:8788
+npm run dev:cloud           # SPA + /api/* on http://localhost:8788 (sign in with the generated key)
 ```
 
 See `ARCHITECTURE.md` for code layout and `docs/CLOUD_ARCHITECTURE.md` for the cloud design.

@@ -20,5 +20,7 @@
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Tests that drive the real API handler in-process need Node types; see tsconfig.cloudtest.json.
+  "exclude": ["src/test/cloudHarness.ts", "src/cloud/**/*.test.ts", "src/ui/cloud/**/*.test.tsx"]
 }

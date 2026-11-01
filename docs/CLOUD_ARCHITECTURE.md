@@ -1,13 +1,14 @@
 # Cloud Architecture: free-first, Cloudflare-backed
 
-Status: **proposal, with the infrastructure foundation implemented**.
+Status: **foundation and owner management UI implemented**.
 
-| Implemented in this change | Not yet built |
+| Built | Not yet built |
 |---|---|
-| D1 schema and migration | Web UI for login, devices, sync history, sync requests |
-| All API endpoints in §4, §5, §7 and §10 | Browser API client, IndexedDB delta cache, cloud JSON-import upload UI |
-| Shared protocol, hashing and reconciliation (`src/domain/sync/`) | iOS exporter and sync client (CostcoTracker repo) |
-| D1 and node:sqlite adapters; local dev via wrangler | Analytics dashboard |
+| D1 schema and migration | IndexedDB delta cache (§7). It isn't needed by the management UI, which reads the API directly |
+| All API endpoints in §4, §5, §7 and §10 | iOS exporter and sync client (CostcoTracker repo) |
+| Shared protocol, hashing and reconciliation (`src/domain/sync/`) | Analytics dashboard |
+| D1 and node:sqlite adapters; local dev via wrangler | |
+| Owner UI: sign-in, overview, iPhones (enrollment and revocation), sync requests and history (including removal review), file import via the sync protocol, validated backup download (`src/cloud/`, `src/ui/cloud/`) | |
 
 ## 0. Goals and hard constraints
 
@@ -315,7 +316,7 @@ The Export V1 fields only:
 
 ### Other controls
 - **No telemetry.** No logging of request bodies. Worker logs contain only route, status and error code.
-- **CSP.** Moves from `connect-src 'none'` to `connect-src 'self'` when the UI first calls the API, and never allows third parties.
+- **CSP.** `connect-src 'self'`: the page may only call its own `/api/*`. It never allows third parties (no analytics, fonts or CDNs).
 
 ## 10. Backup and export
 1. **Analytics JSON (owner-facing).** `GET /api/export/meta` plus paginated `GET /api/export/{receipts|items|returns|priceAdjustments}?cursor=&limit=500`. The browser assembles an Export V1 file and **validates it with the existing importer** before offering the download, so the round trip is proven every time. Tombstoned rows are excluded by default.
