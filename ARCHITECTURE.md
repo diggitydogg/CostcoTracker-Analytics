@@ -20,7 +20,8 @@ src/
     sync/              Sync protocol schemas, canonical hashing, reconciliation planning (shared with server)
   persistence/       IndexedDB storage for the local-file mode (D1 is canonical in cloud mode)
   app/               React hook orchestrating local import / remember / forget
-  cloud/             Typed same-origin API client, session hook, upload and backup workflows
+  analytics/         Pure analytics engine: one snapshot from an Export V1 dataset (docs/ANALYTICS_ENGINE.md)
+  cloud/             Typed same-origin API client, session hook, upload/backup workflows, cloud dataset loader
   ui/                Presentational components; no calculations
     cloud/             Cloud screens: sign-in, overview, sync, iPhones, import, backup
   fixtures/          Synthetic data only
@@ -31,7 +32,7 @@ functions/api/       Cloudflare Pages Function entry (the only Cloudflare-specif
 migrations/          D1 / SQLite schema
 ```
 
-Dependencies point inward: `ui -> app -> persistence -> domain` and `server -> domain`. Later analytics belong in `src/domain/` as pure, tested functions.
+Dependencies point inward: `ui -> app -> persistence -> domain`, `ui -> analytics -> domain` and `server -> domain`. Cloud and local data both reach the analytics engine as the same validated `AnalyticsExportV1`. Analytics are pure, tested functions in `src/analytics/`, never computed inside components.
 
 ## Import pipeline (`src/domain/import/importExport.ts`)
 

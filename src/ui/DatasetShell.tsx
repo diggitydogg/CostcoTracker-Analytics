@@ -1,11 +1,15 @@
 import { useMemo, useState } from 'react'
 import type { LoadedDataset } from '../domain/dataset'
 import { summarizeImport } from '../domain/summary'
+import { AnalyticsPreview } from './analytics/AnalyticsPreview'
 
-type View = 'summary' | 'details'
+const LOCAL_SOURCE = { source: 'local-file' as const }
+
+type View = 'summary' | 'analytics' | 'details'
 
 const VIEWS: { id: View; label: string }[] = [
   { id: 'summary', label: 'Import summary' },
+  { id: 'analytics', label: 'Analytics preview' },
   { id: 'details', label: 'Import details' },
 ]
 
@@ -51,7 +55,9 @@ export function DatasetShell({ dataset, onImportAnother }: { dataset: LoadedData
         </p>
       )}
 
-      {view === 'summary' ? (
+      {view === 'analytics' ? (
+        <AnalyticsPreview data={dataset.data} source={LOCAL_SOURCE} />
+      ) : view === 'summary' ? (
         <section aria-labelledby="summary-title" className="space-y-4">
           <h2 id="summary-title" className="text-xl font-semibold">
             Imported records
