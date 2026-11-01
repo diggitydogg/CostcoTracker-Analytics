@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { createCloudApi, type CloudApi } from '../../cloud/api'
 import { CloudContext } from '../../cloud/CloudContext'
+import { CloudDatasetProvider } from '../../cloud/CloudDatasetProvider'
 import { useCloudSession } from '../../cloud/useCloudSession'
 import type { OverridesStore } from '../../persistence/overridesStore'
 import { LazyCloudDashboard } from '../dashboard/lazy'
@@ -72,45 +73,48 @@ export function CloudApp({
 
   return (
     <CloudContext.Provider value={context}>
-      <div className="space-y-5">
-        <nav aria-label="Cloud sections">
-          <ul className="flex flex-wrap gap-1 rounded-lg bg-slate-200 p-1">
-            {TABS.map((t) => (
-              <li key={t.id}>
-                <button
-                  type="button"
-                  aria-current={tab === t.id ? 'page' : undefined}
-                  onClick={() => setTab(t.id)}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === t.id ? 'bg-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
-                >
-                  {t.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        {tab === 'dashboard' && (
-          <LazyCloudDashboard
-            {...(testOptions.overridesStore ? { overridesStore: testOptions.overridesStore } : {})}
-            {...(testOptions.today ? { today: testOptions.today } : {})}
-          />
-        )}
-        {tab !== 'dashboard' && (
-          // Management screens keep a comfortable reading width; the dashboard uses the full width.
-          <div className="max-w-5xl space-y-5">
-            <h2 className="sr-only">{TABS.find((t) => t.id === tab)!.label}</h2>
-            {tab === 'overview' && (
-              <OverviewPanel formatVersion={state.formatVersion} onLogout={session.logout} onLogoutEverywhere={session.logoutEverywhere} />
-            )}
-            {tab === 'sync' && (
-              <SyncPanel onAddDevice={() => setTab('devices')} {...(testOptions.pollMs !== undefined ? { pollMs: testOptions.pollMs } : {})} />
-            )}
-            {tab === 'devices' && <DevicesPanel />}
-            {tab === 'import' && <ImportPanel {...(testOptions.retryDelaysMs ? { retryDelaysMs: testOptions.retryDelaysMs } : {})} />}
-            {tab === 'backup' && <BackupPanel {...(testOptions.saveFile ? { save: testOptions.saveFile } : {})} />}
-          </div>
-        )}
-      </div>
+      {/* Keeps the dashboard's dataset in memory while switching tabs. */}
+      <CloudDatasetProvider>
+        <div className="space-y-5">
+          <nav aria-label="Cloud sections">
+            <ul className="flex flex-wrap gap-1 rounded-lg bg-slate-200 p-1">
+              {TABS.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    aria-current={tab === t.id ? 'page' : undefined}
+                    onClick={() => setTab(t.id)}
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium ${tab === t.id ? 'bg-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
+                  >
+                    {t.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          {tab === 'dashboard' && (
+            <LazyCloudDashboard
+              {...(testOptions.overridesStore ? { overridesStore: testOptions.overridesStore } : {})}
+              {...(testOptions.today ? { today: testOptions.today } : {})}
+            />
+          )}
+          {tab !== 'dashboard' && (
+            // Management screens keep a comfortable reading width; the dashboard uses the full width.
+            <div className="max-w-5xl space-y-5">
+              <h2 className="sr-only">{TABS.find((t) => t.id === tab)!.label}</h2>
+              {tab === 'overview' && (
+                <OverviewPanel formatVersion={state.formatVersion} onLogout={session.logout} onLogoutEverywhere={session.logoutEverywhere} />
+              )}
+              {tab === 'sync' && (
+                <SyncPanel onAddDevice={() => setTab('devices')} {...(testOptions.pollMs !== undefined ? { pollMs: testOptions.pollMs } : {})} />
+              )}
+              {tab === 'devices' && <DevicesPanel />}
+              {tab === 'import' && <ImportPanel {...(testOptions.retryDelaysMs ? { retryDelaysMs: testOptions.retryDelaysMs } : {})} />}
+              {tab === 'backup' && <BackupPanel {...(testOptions.saveFile ? { save: testOptions.saveFile } : {})} />}
+            </div>
+          )}
+        </div>
+      </CloudDatasetProvider>
     </CloudContext.Provider>
   )
 }

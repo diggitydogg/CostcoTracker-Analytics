@@ -2,7 +2,12 @@
 
 `src/ui/dashboard/` is the main data-exploration experience. The same `Dashboard` component serves both data sources:
 
-- **Cloud:** the **Dashboard** tab (the landing view after sign-in). `CloudDashboard` loads the full dataset once with `fetchCloudDataset`: `/api/export/meta`, then one request per page of each collection. It never makes per-record requests. The management screens (Overview, Sync, iPhones, Import, Backup) are unchanged.
+- **Cloud:** the **Dashboard** tab (the landing view after sign-in).
+  - **First visit:** `CloudDashboard` loads the full dataset with `fetchCloudDataset`: `/api/export/meta`, then one request per page of each collection. It never makes per-record requests.
+  - **Session cache:** the dataset is kept in an in-memory cache (`CloudDatasetProvider`, mounted once in the signed-in cloud app). Switching tabs and returning makes **no** export requests. Nothing is persisted, and signing out drops it.
+  - **Reload dashboard** re-reads D1 on demand. It only reads the cloud and never triggers the iPhone's "Refresh from Costco" workflow.
+  - **Staleness:** the cached copy is marked stale when a web import completes, or when the Overview sees a newer `changeSeq` than the loaded copy (for example, after an iPhone sync). The dashboard then shows "Your cloud has new data…" with a **Reload dashboard** button. It never re-downloads by itself.
+  - The management screens (Overview, Sync, iPhones, Import, Backup) are unchanged.
 - **File on this device:** the **Dashboard** view, shown first after an import.
 
 ## Data flow

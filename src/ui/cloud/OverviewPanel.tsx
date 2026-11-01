@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Device, ExportMeta, SyncRun } from '../../cloud/api'
 import { useCloud } from '../../cloud/CloudContext'
+import { useCloudDataset } from '../../cloud/CloudDatasetContext'
 import { useCloudResource } from '../../cloud/useCloudResource'
 import { RUN_STATUS_LABEL, formatDateTime, plural } from './format'
 import { Button, ConfirmAction, Notice, Section } from './primitives'
@@ -23,6 +24,12 @@ export function OverviewPanel({
     return { meta, lastRun: runs.runs[0] ?? null, devices: devices.devices }
   }, [api])
   const { data, error, reload } = useCloudResource(fetcher)
+  // Tell the dashboard's cached copy when the cloud has changed since it was loaded.
+  const noteChangeSeq = useCloudDataset()?.noteChangeSeq
+  const changeSeq = data?.meta.changeSeq
+  useEffect(() => {
+    if (changeSeq !== undefined) noteChangeSeq?.(changeSeq)
+  }, [changeSeq, noteChangeSeq])
 
   const activeDevices = data?.devices.filter((d) => d.revoked_at === null) ?? []
 
