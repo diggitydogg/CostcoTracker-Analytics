@@ -31,6 +31,21 @@ export function ItemDetail({ itemNumber }: { itemNumber: string }) {
         {item.descriptions.length > 1 && (
           <p className="text-xs text-slate-500">Also recorded as: {item.descriptions.slice(1).join(' · ')}</p>
         )}
+        {item.identity && (
+          <p className="text-xs text-slate-600" data-testid="product-identity">
+            Identified by item number as <span className="font-medium text-slate-900">{item.identity.normalizedName}</span>
+            {item.identity.brand && ` · ${item.identity.brand}`}
+            {item.identity.productType && ` · ${item.identity.productType}`} · {share(item.identity.confidence, 0)} confidence
+            {item.identity.sourceUrl && (
+              <>
+                {' · '}
+                <a href={item.identity.sourceUrl} target="_blank" rel="noreferrer noopener" className="text-sky-800 underline">
+                  source
+                </a>
+              </>
+            )}
+          </p>
+        )}
       </div>
 
       <dl className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-4">

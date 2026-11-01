@@ -29,7 +29,7 @@ The application must not transmit analytics data to:
 - an AI provider
 - any party other than the owner's own deployment
 
-This holds unless a feature explicitly asks for permission and clearly describes the exact data being sent. The only such feature is the optional AI category suggestions, described below.
+This holds unless a feature explicitly asks for permission and clearly describes the exact data being sent. Such features are the optional AI category suggestions and product identification by web search, described below.
 
 The browser enforces this with a Content Security Policy of `connect-src 'self'`. The page can only call the owner's own same-origin API, never a third-party origin. There are no analytics, telemetry, web fonts or CDNs.
 
@@ -59,6 +59,10 @@ Request payload (enforced by a strict schema and tests):
 Never sent: receipt/order IDs or numbers, barcodes, purchase dates, warehouse or location, prices, spend, quantities, returns or adjustment amounts, other receipt contents, or any account, session, device or Costco credential data.
 
 AI output is a suggested category, never source truth. Nothing changes until the owner accepts or edits a suggestion, which then becomes an ordinary browser-side category override. Suggestions are not stored in the cloud. Details: `docs/AI_CATEGORY_SUGGESTIONS.md`.
+
+## Product identification (web search)
+
+Optional and cloud-only. It runs only when the owner clicks **Suggest categories with AI**, which first looks up Uncategorized item numbers. For an item number not already in the cache, the server sends **only** the word "Costco", the Costco item number and the abbreviated receipt description to the configured web search provider (Brave Search API, via the owner's own `SEARCH_API_KEY`). This is the only feature that sends data to a party other than Cloudflare. No barcode, order number, date, warehouse, price, quantity, purchase history, account or device data is sent, and no website (including costco.com) is fetched or scraped. Results (public product name, brand, type, source URL) are cached in the owner's D1 so each item number is looked up once. Details: `docs/PRODUCT_IDENTIFICATION.md`.
 
 ## Demo / testing data
 

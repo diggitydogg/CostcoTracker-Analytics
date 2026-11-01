@@ -6,9 +6,11 @@
  * Faults can be injected per request to test network and server errors.
  */
 import migration from '../../migrations/0001_initial.sql?raw'
+import productMigration from '../../migrations/0002_product_identities.sql?raw'
 import { applyMigrationSql, nodeSqliteDatabase, type NodeSqlite } from '../../server/adapters/nodeSqlite'
 import { createRateLimiter, type AiBinding } from '../../server/ai/categorySuggest'
 import { createApp } from '../../server/app'
+import type { WebSearch } from '../../server/products/search'
 import { createCloudApi, type CloudApi, type FetchLike } from '../cloud/api'
 import type { AnalyticsExportV1 } from '../domain/export/v1'
 import { importExportValue } from '../domain/import/importExport'
@@ -56,9 +58,9 @@ export type CloudHarness = {
   hasSessionCookie(): boolean
 }
 
-export async function createCloudHarness(options: { configured?: boolean; ai?: AiBinding } = {}): Promise<CloudHarness> {
+export async function createCloudHarness(options: { configured?: boolean; ai?: AiBinding; search?: WebSearch | null } = {}): Promise<CloudHarness> {
   const db = nodeSqliteDatabase()
-  applyMigrationSql(db, [migration])
+  applyMigrationSql(db, [migration, productMigration])
   const app = createApp({
     db,
     env: {
@@ -66,6 +68,9 @@ export async function createCloudHarness(options: { configured?: boolean; ai?: A
       ...(options.ai ? { AI: options.ai } : {}),
     },
     aiLimiter: createRateLimiter(),
+    identifyLimiter: createRateLimiter(),
+    // UI tests never reach a real search API.
+    search: options.search ?? null,
   })
   let cookie: string | null = null
   const faults: Fault[] = []

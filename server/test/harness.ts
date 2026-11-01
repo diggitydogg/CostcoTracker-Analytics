@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { applyMigrations, nodeSqliteDatabase, type NodeSqlite } from '../adapters/nodeSqlite'
 import { createRateLimiter, type AiBinding } from '../ai/categorySuggest'
 import { createApp } from '../app'
+import type { WebSearch } from '../products/search'
 
 export const ORIGIN = 'https://analytics.example.test'
 export const ACCESS_KEY = 'test-access-key-0123456789abcdefghijklmnopqrstuvwxyz'
@@ -18,7 +19,7 @@ export type Harness = {
 type CallOptions = { body?: unknown; rawBody?: string; cookie?: string; bearer?: string; origin?: string | null }
 
 export function createHarness(
-  options: { configureKey?: boolean; ai?: AiBinding; aiLimiter?: { check(now: Date): void } } = {},
+  options: { configureKey?: boolean; ai?: AiBinding; aiLimiter?: { check(now: Date): void }; search?: WebSearch | null } = {},
 ): Harness {
   const db = nodeSqliteDatabase()
   applyMigrations(db, MIGRATIONS)
@@ -33,6 +34,9 @@ export function createHarness(
     now: () => clock.now,
     // A fresh limiter per harness so tests never share the isolate-wide one.
     aiLimiter: options.aiLimiter ?? createRateLimiter(),
+    identifyLimiter: createRateLimiter(),
+    // Never reach a real search API from tests.
+    search: options.search ?? null,
   })
 
   const call: Harness['call'] = async (method, path, opts = {}) => {

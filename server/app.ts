@@ -29,7 +29,11 @@ import {
 } from './auth'
 import type { SqlDatabase } from './db'
 import { exportMeta, exportPage } from './exportData'
-import { defaultSuggestionLimiter, suggestCategories, type AiBinding } from './ai/categorySuggest'
+import { createRateLimiter, defaultSuggestionLimiter, suggestCategories, type AiBinding } from './ai/categorySuggest'
+import { IDENTIFY_LIMITS, identifyRequestSchema } from '../src/analytics/products/identityProtocol'
+import { IDENTIFY_RATE_LIMIT, searchFromEnv } from './products/config'
+import { identitiesFor, identifyItems, listIdentities } from './products/identify'
+import type { WebSearch } from './products/search'
 import { SUGGEST_LIMITS, suggestRequestSchema } from '../src/analytics/categories/suggestProtocol'
 import { ApiError, errorResponse, json, parseWith, readJson } from './http'
 import { abortRun, applyBatch, completeRun, confirmRemovals, getRun, listRuns, startRun } from './sync'
@@ -39,6 +43,8 @@ export type AppEnv = {
   OWNER_ACCESS_KEY_SHA256?: string
   /** Cloudflare Workers AI binding (optional; only AI category suggestions use it). */
   AI?: AiBinding
+  /** Web search API key for product identification (optional secret). */
+  SEARCH_API_KEY?: string
 }
 
 export type AppDeps = {
@@ -47,7 +53,13 @@ export type AppDeps = {
   now?: () => Date
   /** Limits AI suggestion requests; defaults to one shared per isolate. */
   aiLimiter?: { check(now: Date): void }
+  /** Limits product identification requests; defaults to one shared per isolate. */
+  identifyLimiter?: { check(now: Date): void }
+  /** Web search provider; defaults to the one configured by SEARCH_API_KEY (tests inject a fake). */
+  search?: WebSearch | null
 }
+
+const defaultIdentifyLimiter = createRateLimiter(IDENTIFY_RATE_LIMIT)
 
 const SMALL_BODY = 4 * 1024
 export const SYNC_REQUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -62,6 +74,8 @@ type Ctx = {
   env: AppEnv
   now: Date
   aiLimiter: { check(now: Date): void }
+  identifyLimiter: { check(now: Date): void }
+  search: WebSearch | null
 }
 type Route = { method: string; pattern: RegExp; access: Access; handle: (ctx: Ctx) => Promise<Response> }
 
@@ -355,11 +369,32 @@ const routes: Route[] = [
     method: 'POST',
     pattern: /^\/api\/categories\/suggest$/,
     access: 'owner',
-    handle: async ({ request, env, now, aiLimiter }) => {
+    handle: async ({ request, env, now, aiLimiter, db }) => {
       const body = parseWith(suggestRequestSchema, await readJson(request, SUGGEST_LIMITS.maxRequestBytes))
       aiLimiter.check(now)
-      return json(await suggestCategories(env.AI, body.items))
+      // Give the model the public product identity already found by web search, if any.
+      const identities = await identitiesFor(db, body.items.map((i) => i.itemNumber))
+      return json(await suggestCategories(env.AI, body.items, identities))
     },
+  },
+
+  // ── Product identification (owner) ───────────────────────────────────────
+  // Cache first; targeted web search only for unknown item numbers.
+  {
+    method: 'POST',
+    pattern: /^\/api\/products\/identify$/,
+    access: 'owner',
+    handle: async ({ request, env, now, db, identifyLimiter, search }) => {
+      const body = parseWith(identifyRequestSchema, await readJson(request, IDENTIFY_LIMITS.maxRequestBytes))
+      identifyLimiter.check(now)
+      return json(await identifyItems({ db, search, ai: env.AI, now }, body.items))
+    },
+  },
+  {
+    method: 'GET',
+    pattern: /^\/api\/products\/identities$/,
+    access: 'owner',
+    handle: async ({ db }) => json({ identities: await listIdentities(db) }),
   },
 
   // ── Export (owner) ────────────────────────────────────────────────────────
@@ -408,7 +443,18 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
       const principal = await resolvePrincipal(deps.db, request, now)
       authorize(route, principal, request)
       const params = route.pattern.exec(url.pathname)!.slice(1)
-      return await route.handle({ request, url, params, principal, db: deps.db, env: deps.env, now, aiLimiter: deps.aiLimiter ?? defaultSuggestionLimiter })
+      return await route.handle({
+        request,
+        url,
+        params,
+        principal,
+        db: deps.db,
+        env: deps.env,
+        now,
+        aiLimiter: deps.aiLimiter ?? defaultSuggestionLimiter,
+        identifyLimiter: deps.identifyLimiter ?? defaultIdentifyLimiter,
+        search: deps.search !== undefined ? deps.search : searchFromEnv(deps.env),
+      })
     } catch (error) {
       if (error instanceof ApiError) return errorResponse(error)
       // Never log request bodies or record values; the error class/message is enough.

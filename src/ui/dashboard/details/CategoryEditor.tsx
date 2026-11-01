@@ -29,7 +29,11 @@ export function CategoryEditor({ item }: { item: ItemStats }) {
         ) : (
           <Badge tone="amber">No rule matched</Badge>
         )}
-        {a.source === 'rule' && a.matchedPhrase && <span className="text-xs text-slate-500">matched “{a.matchedPhrase.replace(/\*/g, '…')}”</span>}
+        {a.source === 'rule' && a.matchedPhrase && (
+          <span className="text-xs text-slate-500" data-testid="category-basis">
+            matched “{a.matchedPhrase.replace(/\*/g, '…')}”{a.basis === 'identity' ? ' in the identified product name' : ''}
+          </span>
+        )}
       </p>
       <form
         className="flex flex-wrap items-end gap-2"

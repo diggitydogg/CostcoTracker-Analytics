@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import type { ProductIdentities, ProductIdentity } from '../analytics/products/identityProtocol'
 import type { CloudDataset } from './cloudDataset'
 
 /**
@@ -23,11 +24,15 @@ export type CloudDatasetState = {
   loadedAt: Date | null
   /** True when the cloud is known to have changed since `dataset` was loaded. */
   stale: boolean
+  /** Cached product identities (public, from web search), loaded with the dataset. */
+  identities: ProductIdentities
 }
 
 export type CloudDatasetValue = CloudDatasetState & {
   ensureLoaded: () => void
   reload: () => void
+  /** Adds identities found during this session (no refetch needed). */
+  addIdentities: (identities: readonly ProductIdentity[]) => void
   markStale: () => void
   noteChangeSeq: (changeSeq: number) => void
 }

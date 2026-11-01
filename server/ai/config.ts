@@ -19,6 +19,12 @@
  */
 export const CATEGORY_SUGGESTION_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
 
+/**
+ * Model used to normalize web-search results into a clean product name, brand
+ * and product type (product identification). Same JSON-Mode model by default.
+ */
+export const PRODUCT_NORMALIZATION_MODEL = CATEGORY_SUGGESTION_MODEL
+
 export const CATEGORY_SUGGESTION_MODEL_OPTIONS = {
   /** Low temperature: classification, not creativity. */
   temperature: 0.1,

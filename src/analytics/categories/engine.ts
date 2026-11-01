@@ -22,6 +22,11 @@ export type CategoryAssignment = {
   ruleId: string | null
   /** The phrase of that rule that matched. */
   matchedPhrase: string | null
+  /**
+   * Which text the rule matched: a receipt description, or the product name
+   * found by web search for this item number (product identification).
+   */
+  basis: 'receipt' | 'identity' | null
 }
 
 export type CategoryOverride = { categoryId: CategoryId; subcategoryId?: string | null }
@@ -106,14 +111,20 @@ export function matchRules(
 }
 
 /**
- * Categorizes one item. `descriptions` are the item's description variants,
- * most recent first; the first one any rule matches decides.
+ * Categorizes one item. Order of decision:
+ * 1. the owner's override;
+ * 2. rules on the receipt `descriptions` (most recent first);
+ * 3. rules on `identityTexts` — the product name/type a web search found for
+ *    this exact item number (only consulted when no receipt text matched, so
+ *    existing rule results never change);
+ * 4. Uncategorized.
  */
 export function categorize(
   itemNumber: string,
   descriptions: readonly string[],
   overrides: CategoryOverrides = {},
   rules: readonly CategoryRule[] = DEFAULT_RULES,
+  identityTexts: readonly string[] = [],
 ): CategoryAssignment {
   const override = Object.prototype.hasOwnProperty.call(overrides, itemNumber) ? overrides[itemNumber] : undefined
   if (override && isValidAssignment(override.categoryId, override.subcategoryId)) {
@@ -123,21 +134,29 @@ export function categorize(
       source: 'override',
       ruleId: null,
       matchedPhrase: null,
+      basis: null,
     }
   }
-  for (const description of descriptions) {
-    const match = matchRules(description, rules)
-    if (match) {
-      return {
-        categoryId: match.rule.categoryId,
-        subcategoryId: match.rule.subcategoryId ?? null,
-        source: 'rule',
-        ruleId: match.rule.id,
-        matchedPhrase: match.phrase,
+  const sources: [readonly string[], 'receipt' | 'identity'][] = [
+    [descriptions, 'receipt'],
+    [identityTexts, 'identity'],
+  ]
+  for (const [texts, basis] of sources) {
+    for (const text of texts) {
+      const match = matchRules(text, rules)
+      if (match) {
+        return {
+          categoryId: match.rule.categoryId,
+          subcategoryId: match.rule.subcategoryId ?? null,
+          source: 'rule',
+          ruleId: match.rule.id,
+          matchedPhrase: match.phrase,
+          basis,
+        }
       }
     }
   }
-  return { categoryId: UNCATEGORIZED, subcategoryId: null, source: 'fallback', ruleId: null, matchedPhrase: null }
+  return { categoryId: UNCATEGORIZED, subcategoryId: null, source: 'fallback', ruleId: null, matchedPhrase: null, basis: null }
 }
 
 // ── Override import/export (for a future review UI) ──────────────────────────
