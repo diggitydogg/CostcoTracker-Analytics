@@ -14,6 +14,8 @@
  *      the receipt description of its first occurrence; LIVE_OFFSET (default 0)
  *      of them are skipped and the next LIVE_N (default 15) are tested, so
  *      LIVE_OFFSET=0 is the first batch, LIVE_OFFSET=15 the next, and so on.
+ *      LIVE_ITEMS=<itemNumber,…> instead picks just those item numbers (with
+ *      their first receipt description), e.g. LIVE_ITEMS=1890009 to recheck one SKU.
  *      Nothing else from the file is used.
  *   2. Otherwise a manual list in `.live-skus.json` (gitignored) or LIVE_SKUS_FILE:
  *        [{ "itemNumber": "1234567", "description": "KS EXAMPLE", "expect": "optional note" }]
@@ -37,7 +39,7 @@ import { importExportText } from '../../src/domain/import/importExport'
 import { buildSuggestionItems } from '../../src/analytics/categories/suggestProtocol'
 import { IDENTIFY_LIMITS } from '../../src/analytics/products/identityProtocol'
 import { normalizeStrongCandidates, toResolvedIdentity, type Normalized, type StrongCandidate } from '../../server/products/identify'
-import { braveSearch, cleanProductTitle, pickCandidate, searchQueries, type Candidate, type SearchResult } from '../../server/products/search'
+import { braveSearch, cleanProductTitle, isStrong, lookupCandidate, MAX_QUERIES_PER_ITEM, type Candidate } from '../../server/products/search'
 import { workersAiRest } from './workersAiRest'
 
 type Sku = { itemNumber: string; description: string; expect?: string }
@@ -48,6 +50,7 @@ const exportFile = process.env.LIVE_SKUS_FROM_EXPORT?.trim()
 const batchSize = Number(process.env.LIVE_N ?? 15)
 const offset = Number(process.env.LIVE_OFFSET ?? 0)
 const aiNormalize = process.env.LIVE_AI_NORMALIZE === '1'
+const onlyItems = (process.env.LIVE_ITEMS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
 /** Stay well under Brave's per-second limit. */
 const DELAY_MS = Number(process.env.LIVE_DELAY_MS ?? 1100)
 const MAX_SKUS = 25
@@ -65,8 +68,9 @@ describe.skipIf(!key)('live Brave product identification', () => {
   it('classifies representative Costco SKUs (search only, nothing stored)', async () => {
     expect(Number.isInteger(offset) && offset >= 0, 'LIVE_OFFSET must be a whole number ≥ 0').toBe(true)
     expect(Number.isInteger(batchSize) && batchSize >= 1, 'LIVE_N must be a whole number ≥ 1').toBe(true)
-    const skus = exportFile ? distinctSkus(exportFile, offset, batchSize) : manualSkus()
-    if (exportFile) console.log(`Distinct SKUs #${offset + 1}–#${offset + skus.length} (LIVE_OFFSET=${offset}, LIVE_N=${batchSize}) from the export file`)
+    const skus = exportFile ? (onlyItems.length > 0 ? pickedSkus(exportFile, onlyItems) : distinctSkus(exportFile, offset, batchSize)) : manualSkus()
+    if (exportFile && onlyItems.length > 0) console.log(`Selected item numbers (LIVE_ITEMS): ${skus.map((s) => s.itemNumber).join(', ')}`)
+    else if (exportFile) console.log(`Distinct SKUs #${offset + 1}–#${offset + skus.length} (LIVE_OFFSET=${offset}, LIVE_N=${batchSize}) from the export file`)
     expect(skus.length).toBeGreaterThan(0)
     expect(skus.length, `At most ${MAX_SKUS} SKUs per run`).toBeLessThanOrEqual(MAX_SKUS)
 
@@ -91,27 +95,30 @@ describe.skipIf(!key)('live Brave product identification', () => {
         continue
       }
       const started = Date.now()
-      let candidate = null
+      let candidate: Candidate | null = null
       let used = 0
       let error = ''
-      let hostsSeen: string[] = []
-      for (const query of searchQueries(item.itemNumber, item.descriptions[0]!)) {
+      const hostsSeen = new Set<string>()
+      // The production lookup (query order, early stop, query bound and evidence checks), with a delay between queries.
+      try {
+        const out = await lookupCandidate(search, item.itemNumber, item.descriptions[0]!, {
+          beforeQuery: async (_q, i) => {
+            if (i > 0 || queries > 0) await sleep(DELAY_MS)
+          },
+          onResults: (_query, results) => {
+            used += 1
+            queries += 1
+            parsedResults += results.length
+            for (const r of results) hostsSeen.add(host(r.url))
+          },
+        })
+        candidate = out.candidate
+      } catch (e) {
         used += 1
         queries += 1
-        let results: SearchResult[]
-        try {
-          results = await search.search(query)
-        } catch (e) {
-          error = e instanceof Error ? e.message : String(e)
-          break
-        }
-        parsedResults += results.length
-        hostsSeen = [...new Set(results.map((r) => host(r.url)))]
-        candidate = pickCandidate(item.itemNumber, results)
-        await sleep(DELAY_MS)
-        if (candidate) break
+        error = e instanceof Error ? e.message : String(e)
       }
-      const strong = candidate && candidate.evidence !== 'single-source'
+      const strong = candidate && isStrong(candidate)
       candidates.set(item.itemNumber, {
         item: strong ? { itemNumber: item.itemNumber, receiptDescription: item.descriptions[0]!, candidate: candidate! } : null,
         weak: strong ? null : candidate,
@@ -131,7 +138,8 @@ describe.skipIf(!key)('live Brave product identification', () => {
         confidence: candidate?.confidence ?? 0,
         sources: candidate?.sources ?? 0,
         basis: candidate ? candidate.evidence : '',
-        resultHosts: hostsSeen.slice(0, 5).join(', '),
+        resolvedBy: strong ? (['normal', 'site:warehouserunner', 'quoted item #'][used - 1] ?? '') : '',
+        resultHosts: [...hostsSeen].slice(0, 5).join(', '),
         ms: Date.now() - started,
         ...(sku.expect ? { expect: sku.expect } : {}),
       })
@@ -180,13 +188,35 @@ describe.skipIf(!key)('live Brave product identification', () => {
     }
     const count = (p: string) => rows.filter((r) => String(r.outcome).startsWith(p)).length
     console.log(
-      `\n${skus.length} SKUs · ${queries} Brave queries (≤ 2 per SKU) · resolved ${count('resolved')} · provisional ${count('unresolved')} · not found ${count('not_found')} · errors ${count('error')}`,
+      `\n${skus.length} SKUs · ${queries} Brave queries (≤ ${MAX_QUERIES_PER_ITEM} per SKU) · resolved ${count('resolved')} · provisional ${count('unresolved')} · not found ${count('not_found')} · errors ${count('error')}`,
     )
     // The adapter must actually parse Brave's live response format.
     expect(parsedResults, 'Brave returned no parseable results at all: check the key, plan and response format').toBeGreaterThan(0)
-    expect(queries).toBeLessThanOrEqual(skus.length * 2)
+    expect(queries).toBeLessThanOrEqual(skus.length * MAX_QUERIES_PER_ITEM)
   })
 })
+
+function readExportItems(path: string) {
+  expect(existsSync(path), `Export file not found: ${path}`).toBe(true)
+  const parsed = importExportText(readFileSync(path, 'utf8'))
+  if (!parsed.ok) throw new Error(`Not a valid Export V1 file: ${parsed.error.message}`)
+  return parsed.data.items
+}
+
+/** Just the requested item numbers, each with its first non-empty receipt description (read-only). */
+function pickedSkus(path: string, wanted: readonly string[]): Sku[] {
+  expect(wanted.length, `At most ${MAX_SKUS} LIVE_ITEMS per run`).toBeLessThanOrEqual(MAX_SKUS)
+  const first = new Map<string, string>()
+  for (const item of readExportItems(path)) {
+    const itemNumber = item.itemNumber.trim()
+    const description = item.description.trim()
+    if (itemNumber && description && !first.has(itemNumber)) first.set(itemNumber, description)
+  }
+  const missing = wanted.filter((n) => !first.has(n))
+  expect(missing, `LIVE_ITEMS not found in the export file: ${missing.join(', ')}`).toEqual([])
+  // Only these two fields leave this function.
+  return [...new Set(wanted)].map((itemNumber) => ({ itemNumber, description: first.get(itemNumber)! }))
+}
 
 /**
  * Distinct non-empty item numbers in an Export V1 file (read-only), in file
@@ -194,12 +224,9 @@ describe.skipIf(!key)('live Brave product identification', () => {
  * and returns up to `n`. The ordering is stable, so batches never overlap.
  */
 function distinctSkus(path: string, offset: number, n: number): Sku[] {
-  expect(existsSync(path), `Export file not found: ${path}`).toBe(true)
-  const parsed = importExportText(readFileSync(path, 'utf8'))
-  if (!parsed.ok) throw new Error(`Not a valid Export V1 file: ${parsed.error.message}`)
   const out: Sku[] = []
   const seen = new Set<string>()
-  for (const item of parsed.data.items) {
+  for (const item of readExportItems(path)) {
     const itemNumber = item.itemNumber.trim()
     const description = item.description.trim()
     if (!itemNumber || !description || seen.has(itemNumber)) continue

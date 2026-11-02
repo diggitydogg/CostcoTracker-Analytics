@@ -22,7 +22,10 @@ Dashboard → Categories → "Suggest categories with AI" (owner click; Uncatego
   │      a. local catalog lookup (product_identities)
   │           resolved → our own record; no search, ever again
   │           unresolved and before retry_after → no search
-  │      b. otherwise search "Costco <item#> <description>", then "Costco \"<item#>\""
+  │      b. otherwise search, stopping at the first strong evidence (≤ 3 Brave queries):
+  │           1. "Costco <item#> <description>"
+  │           2. "site:app.warehouserunner.com <item#>"   (item number only)
+  │           3. "Costco \"<item#>\""
   │         A result counts only if its title, URL or snippet contains the EXACT item number.
   │      c. strong evidence → resolve: canonical name (optionally AI-normalized), brand, type
   │         weak/no evidence → stays unresolved (outcome + retry time only)
@@ -101,13 +104,14 @@ Warehouse Runner keeps a Costco-specific product database keyed by Costco item n
 
 **What we do and don't do:**
 - Warehouse Runner is never fetched, scraped or called. We use only the title Brave already returned, transiently, exactly as for any other result. There is no extra API key or cost.
+- **Targeted Brave query.** If the normal query isn't strong, a Brave `site:app.warehouserunner.com <itemNumber>` query (item number only) can surface product pages Brave ranks low. It is still just a Brave search. Its results go through exactly the same checks (exact item number, exact host, `/costco/<itemNumber>` product path); nothing is trusted because it came from a `site:` query. Results from all queries are judged together, so two agreeing sites found by different queries can also corroborate.
 - Its prices, availability and related items are never read or stored. As with every search result, we keep only our own canonical record (name, brand, type, basis, confidence).
 - Their Terms of Use require their official Business API (`access@warehouserunner.com`) or written permission for automated catalog synchronization, bulk extraction or building product datasets. This feature does none of those: it makes owner-triggered Brave queries and never contacts Warehouse Runner.
 - **AI never manufactures certainty.** Confidence comes only from the evidence class. AI normalization runs only on strong candidates, and only renames or describes them; it never changes the outcome or confidence.
 - An unresolved item can later become resolved if stronger evidence appears at a retry. A resolved record is never overwritten by a lookup, because it is never looked up again.
 
 ## Privacy boundary
-**Sent to Brave:** the word "Costco", the Costco item number and the abbreviated receipt description, and nothing else.
+**Sent to Brave:** the word "Costco", the Costco item number and the abbreviated receipt description, and nothing else. The `site:app.warehouserunner.com` query carries the item number only.
 - The request schema is strict (extra fields → 400).
 - Queries are built only from those two values; quotes and `*` are stripped.
 - Tests assert the exact queries.
@@ -152,7 +156,7 @@ See `CLAUDE.md` for the bounded exception.
 
 ## Live validation (local, read-only)
 `npm run validate:search` (`scripts/live/productSearch.live.ts`) runs the production query builder, Brave adapter, evidence classifier and title cleaner against real SKUs. It writes nothing: no D1, no migration, no saved results.
-- SKUs come from a backup file (`LIVE_SKUS_FROM_EXPORT=<file>`), taking distinct item numbers in file order. `LIVE_OFFSET` (default 0) skips earlier batches and `LIVE_N` (default 15) sets the batch size. A manual `.live-skus.json` (gitignored) also works.
+- SKUs come from a backup file (`LIVE_SKUS_FROM_EXPORT=<file>`), taking distinct item numbers in file order. `LIVE_OFFSET` (default 0) skips earlier batches and `LIVE_N` (default 15) sets the batch size. `LIVE_ITEMS=<itemNumber,…>` instead rechecks just those item numbers. The `resolvedBy` column shows which query (normal, `site:warehouserunner` or quoted item #) produced strong evidence. A manual `.live-skus.json` (gitignored) also works.
 - Only the item number and receipt description are sent to Brave.
 - **Optional `LIVE_AI_NORMALIZE=1`:**
   - runs the production normalization step (`normalizeStrongCandidates` → `toResolvedIdentity`) on resolved matches only;
@@ -163,12 +167,12 @@ See `CLAUDE.md` for the bounded exception.
 ## Cost and request controls
 - **Local catalog first:** a resolved item number costs zero queries forever. Unresolved items are retried after 30 days. A failed search records nothing.
 - **Small requests:**
-  - at most 2 queries per lookup, the second only if the first finds nothing;
+  - at most 3 queries per lookup (`MAX_QUERIES_PER_ITEM`), each later one only while the evidence is still not strong; a provisional single-source result does not stop the lookup;
   - at most 10 items per request and 100 per click;
   - a best-effort limit of 10 requests per 10 minutes per Workers isolate.
 - **Minimal AI:** at most one AI normalization call per request.
 - **Nothing runs in the background.**
-- **Brave pricing:** $5 per 1,000 requests, with $5 of monthly free credit. A few hundred unknown items use a few hundred to about a thousand queries, once.
+- **Brave pricing:** $5 per 1,000 requests, with $5 of monthly free credit. Items resolved by the first query cost 1 query; items that stay unresolved cost 3. A few hundred unknown items therefore use a few hundred to roughly 1,000+ queries, once, so a large first review can exceed the monthly free credit; spread it over several clicks or months if needed (each click is at most 100 items).
 
 ## Next: owner-confirmed identities (not built yet)
 Genuinely provisional items (one ordinary source) should eventually be confirmable by the owner: "Yes, this is the product". That would save our record with a separate basis such as `owner-confirmed`. Until then they stay unresolved and are retried after 30 days.

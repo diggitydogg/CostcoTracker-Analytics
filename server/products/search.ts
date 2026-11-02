@@ -56,13 +56,54 @@ export function braveSearch(apiKey: string, fetchImpl: FetchFn = (i, init) => fe
 /** Removes characters that could change the meaning of a query. */
 const queryText = (s: string) => s.replace(/["*]/g, ' ').replace(/\s+/g, ' ').trim()
 
+/** The Costco-specialist site targeted with Brave's `site:` operator (a search query, never a fetch). */
+export const SPECIALIST_SEARCH_SITE = 'app.warehouserunner.com'
+
+/** Hard bound on Brave queries for one item number. */
+export const MAX_QUERIES_PER_ITEM = 3
+
 /**
- * The queries for one item, in order: item number plus receipt description,
- * then the quoted item number alone. Built only from those two values.
+ * The queries for one item, in order, each sent only while the item is still
+ * unresolved:
+ * 1. item number plus receipt description;
+ * 2. a Brave `site:` query for Warehouse Runner with the item number ONLY;
+ * 3. the quoted item number alone.
+ * Built only from those two values.
  */
 export function searchQueries(itemNumber: string, receiptDescription: string): string[] {
   const desc = queryText(receiptDescription)
-  return [`Costco ${itemNumber}${desc ? ` ${desc}` : ''}`, `Costco "${itemNumber}"`]
+  return [`Costco ${itemNumber}${desc ? ` ${desc}` : ''}`, `site:${SPECIALIST_SEARCH_SITE} ${itemNumber}`, `Costco "${itemNumber}"`]
+}
+
+/** Strong evidence resolves an item; single-source evidence never does. */
+export const isStrong = (c: Candidate | null): boolean => !!c && c.evidence !== 'single-source'
+
+/**
+ * Runs the queries for one item in order and stops as soon as the evidence is
+ * strong. Every query's results are judged by the same exact-item-number and
+ * specialist-page checks (pickCandidate) over all results seen so far: a result
+ * is never trusted because of the query that returned it. At most
+ * MAX_QUERIES_PER_ITEM queries. Results live only in this call's memory.
+ */
+export async function lookupCandidate(
+  search: WebSearch,
+  itemNumber: string,
+  receiptDescription: string,
+  hooks: { beforeQuery?: (query: string, index: number) => Promise<void> | void; onResults?: (query: string, results: SearchResult[]) => void } = {},
+): Promise<{ candidate: Candidate | null; queries: string[] }> {
+  const seen = new Map<string, SearchResult>()
+  const queries: string[] = []
+  let candidate: Candidate | null = null
+  for (const query of searchQueries(itemNumber, receiptDescription).slice(0, MAX_QUERIES_PER_ITEM)) {
+    await hooks.beforeQuery?.(query, queries.length)
+    queries.push(query)
+    const results = await search.search(query)
+    hooks.onResults?.(query, results)
+    for (const r of results) if (!seen.has(r.url)) seen.set(r.url, r)
+    candidate = pickCandidate(itemNumber, [...seen.values()])
+    if (isStrong(candidate)) break
+  }
+  return { candidate, queries }
 }
 
 /**

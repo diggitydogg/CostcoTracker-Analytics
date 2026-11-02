@@ -33,7 +33,7 @@ import {
 import type { AiBinding } from '../ai/categorySuggest'
 import { PRODUCT_NORMALIZATION_MODEL } from '../ai/config'
 import type { SqlDatabase } from '../db'
-import { cleanProductTitle, pickCandidate, searchQueries, type Candidate, type WebSearch } from './search'
+import { cleanProductTitle, isStrong, lookupCandidate, type Candidate, type WebSearch } from './search'
 
 /** An unresolved item number (weak evidence or nothing found) is not searched again for this long. */
 export const UNRESOLVED_RETRY_MS = 30 * 24 * 60 * 60 * 1000
@@ -245,12 +245,8 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
   for (const item of toSearch) {
     const receiptDescription = item.descriptions[0]!
     try {
-      let candidate: Candidate | null = null
-      for (const query of searchQueries(item.itemNumber, receiptDescription)) {
-        candidate = pickCandidate(item.itemNumber, await search!.search(query))
-        if (candidate) break
-      }
-      if (candidate && candidate.evidence !== 'single-source') strong.push({ itemNumber: item.itemNumber, receiptDescription, candidate })
+      const { candidate } = await lookupCandidate(search!, item.itemNumber, receiptDescription)
+      if (candidate && isStrong(candidate)) strong.push({ itemNumber: item.itemNumber, receiptDescription, candidate })
       else
         weak.push({
           itemNumber: item.itemNumber,
