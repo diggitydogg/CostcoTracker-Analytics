@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
 import type { AiBinding } from '../ai/categorySuggest'
-import { UNRESOLVED_RETRY_MS } from '../products/identify'
+import { NORMALIZATION_SYSTEM_PROMPT, UNRESOLVED_RETRY_MS } from '../products/identify'
 import type { Harness } from './harness'
-import { braveSearch, cleanProductTitle, pickCandidate, searchQueries, titlesAgree, type FetchFn, type SearchResult, type WebSearch } from '../products/search'
+import { braveSearch, cleanProductTitle, isSpecialistProductPage, pickCandidate, searchQueries, siteOf, titlesAgree, type FetchFn, type SearchResult, type WebSearch } from '../products/search'
 import { createHarness } from './harness'
 
 const r = (title: string, url: string, snippet = ''): SearchResult => ({ title, url, snippet, imageUrl: null })
@@ -66,10 +66,77 @@ describe('targeted search helpers', () => {
     expect(titlesAgree('Costco Item 1627770 deal', 'Costco item 1627770 sale')).toBe(false) // boilerplate words do not count
   })
 
+  describe('Costco-specialist evidence (Warehouse Runner pages returned by the search API)', () => {
+    const WR = 'https://app.warehouserunner.com/costco'
+    const mat = r('SYNTHETIC MILLS 30" X 47" TEST INDOOR/OUTDOOR MAT', `${WR}/9100001-synthetic-mills-30-x-47-test-indoor-outdoor-mat`, 'Costco item 9100001')
+
+    it('an exact /costco/<itemNumber> product page resolves as costco-specialist (0.85)', () => {
+      expect(pickCandidate('9100001', [mat])).toMatchObject({ evidence: 'costco-specialist', confidence: 0.85, sources: 1, result: { url: mat.url } })
+      // Bare item-number path, trailing slash and the apex hostname also qualify.
+      for (const url of [`${WR}/9100001`, `${WR}/9100001/`, 'https://warehouserunner.com/costco/9100001-mat']) {
+        expect(pickCandidate('9100001', [r('SYNTHETIC MAT', url)])).toMatchObject({ evidence: 'costco-specialist' })
+      }
+      // Preferred over an ordinary single source, but Costco.com still ranks first.
+      const blog = r('Synthetic mat review 9100001', 'https://blog.example/mat')
+      expect(pickCandidate('9100001', [blog, mat])).toMatchObject({ evidence: 'costco-specialist', result: { url: mat.url }, sources: 2 })
+      const costco = r('Synthetic Mat | Costco', 'https://www.costco.com/mat.product.1.html', 'Item 9100001')
+      expect(pickCandidate('9100001', [mat, costco])).toMatchObject({ evidence: 'costco.com', confidence: 0.9 })
+    })
+
+    it('a Warehouse Runner page for a different item number does not qualify', () => {
+      // Another item's page that merely mentions our number (e.g. "related items") is ordinary single-source evidence.
+      const other = r('SYNTHETIC RUNNER 30" X 60"', `${WR}/9100002-synthetic-runner`, 'Related: 9100001')
+      expect(pickCandidate('9100001', [other])).toMatchObject({ evidence: 'single-source', confidence: 0.4 })
+      // Longer/shorter numbers never match the path.
+      expect(isSpecialistProductPage('9100001', `${WR}/91000011-x`)).toBe(false)
+      expect(isSpecialistProductPage('9100001', `${WR}/910000-x`)).toBe(false)
+      expect(pickCandidate('9100001', [r('SYNTHETIC MAT', `${WR}/91000011-synthetic-mat`)])).toBeNull()
+    })
+
+    it('category, store, search and deal-list pages are not product evidence', () => {
+      const nonProduct = [
+        r('Costco Home Prices & Deals', 'https://app.warehouserunner.com/costco/category/home', 'SYNTHETIC MAT 9100001 $19.99'),
+        r('Kitchen & Housewares', 'https://app.warehouserunner.com/category/HOUSEWARES', 'item 9100001'),
+        r('Store #1', 'https://app.warehouserunner.com/store/synthetic-1', 'item 9100001'),
+        r('Search', 'https://app.warehouserunner.com/search?q=9100001', ''),
+        r('Deals', 'https://warehouserunner.com/deals/home/9100001/synthetic-mat', ''),
+      ]
+      for (const page of nonProduct) {
+        expect(isSpecialistProductPage('9100001', page.url)).toBe(false)
+        expect(pickCandidate('9100001', [page])).toMatchObject({ evidence: 'single-source', confidence: 0.4 })
+      }
+    })
+
+    it('only the exact trusted hostnames qualify', () => {
+      for (const url of [
+        'https://warehouserunner.com.evil.example/costco/9100001-mat',
+        'https://evil-warehouserunner.com/costco/9100001-mat',
+        'https://cdn.app.warehouserunner.com/costco/9100001-mat',
+        'http://app.warehouserunner.com/costco/9100001-mat',
+      ]) {
+        expect(isSpecialistProductPage('9100001', url)).toBe(false)
+      }
+    })
+
+    it('two pages of Warehouse Runner are one source, never corroboration', () => {
+      expect(siteOf('app.warehouserunner.com')).toBe(siteOf('warehouserunner.com'))
+      expect(siteOf('shop.example.co.uk')).toBe('example.co.uk')
+      const a = r('SYNTHETIC TEST MAT 9100001', 'https://app.warehouserunner.com/costco/category/home')
+      const b = r('SYNTHETIC TEST MAT 9100001', 'https://warehouserunner.com/deals/home/9100001/synthetic-test-mat')
+      expect(pickCandidate('9100001', [a, b])).toMatchObject({ evidence: 'single-source', sources: 1 })
+    })
+
+    it('ordinary single third-party results stay provisional', () => {
+      expect(pickCandidate('9100001', [r('Synthetic test mat 9100001', 'https://forum.example/t/1')])).toMatchObject({ evidence: 'single-source', confidence: 0.4, sources: 1 })
+    })
+  })
+
   it('cleans retailer suffixes from titles', () => {
     expect(cleanProductTitle('Kirkland Signature Organic Quinoa, 4.5 lbs | Costco')).toBe('Kirkland Signature Organic Quinoa, 4.5 lbs')
     expect(cleanProductTitle('Anker SOLIX C1000 - Costco Wholesale')).toBe('Anker SOLIX C1000')
     expect(cleanProductTitle('Blueair Blue Pure 211i')).toBe('Blueair Blue Pure 211i')
+    expect(cleanProductTitle('SYNTHETIC TEST MAT 30" X 47" - Image 1')).toBe('SYNTHETIC TEST MAT 30" X 47"')
+    expect(cleanProductTitle('Synthetic Test Mat | Warehouse Runner')).toBe('Synthetic Test Mat')
   })
 
   it('the Brave adapter sends only the query and parses https results safely', async () => {
@@ -190,6 +257,42 @@ describe('POST /api/products/identify — transient search, local catalog', () =
     for (const c of columns) expect(c).not.toMatch(/url|image|snippet|title|rank|response|source|provider/i)
   })
 
+  it('resolves an exact Warehouse Runner product page as costco-specialist, storing only our own record', async () => {
+    const WR_MARK = 'WRSNIPPETMARKER'
+    const { search, queries } = fakeSearch({
+      '9100001': [
+        r('Costco Home Prices & Deals', 'https://app.warehouserunner.com/costco/category/home', `9100001 ${WR_MARK}`),
+        {
+          title: 'SYNTHETIC MILLS 30" X 47" TEST INDOOR/OUTDOOR MAT - Image 1',
+          url: 'https://app.warehouserunner.com/costco/9100001-synthetic-mills-30-x-47-test-indoor-outdoor-mat',
+          snippet: `$19.99 at 12 warehouses · in stock · ${WR_MARK}`,
+          imageUrl: `https://img.example/${M.image}.jpg`,
+        },
+      ],
+    })
+    const h = createHarness({ search })
+    const cookie = await h.login()
+    const res = await h.call('POST', '/api/products/identify', { cookie, body: { items: [{ itemNumber: '9100001', descriptions: ['DOOR MAT'] }] } })
+    expect(res.body.results[0]).toMatchObject({
+      status: 'resolved',
+      basis: 'costco-specialist',
+      confidence: 0.85,
+      canonicalName: 'SYNTHETIC MILLS 30" X 47" TEST INDOOR/OUTDOOR MAT',
+      method: 'web-search',
+    })
+    // Brave only: one query, built from the item number and receipt description.
+    expect(queries).toEqual(['Costco 9100001 DOOR MAT'])
+    const stored = dumpDatabase(h)
+    expect(stored).not.toMatch(/https?:\/\/|warehouserunner|\$19\.99|in stock|Image 1/i)
+    expect(stored).not.toContain(WR_MARK)
+    expect(h.db.raw.prepare('SELECT resolution_basis, confidence FROM product_identities').get()).toEqual({ resolution_basis: 'costco-specialist', confidence: 0.85 })
+    // A resolved specialist record is usable and never looked up again.
+    await h.call('POST', '/api/products/identify', { cookie, body: { items: [{ itemNumber: '9100001', descriptions: ['DOOR MAT'] }] } })
+    expect(queries).toHaveLength(1)
+    const list = await h.call('GET', '/api/products/identities', { cookie })
+    expect(list.body.identities).toEqual([expect.objectContaining({ itemNumber: '9100001', basis: 'costco-specialist' })])
+  })
+
   it('never searches a resolved item number again; retries unresolved ones after the retry window', async () => {
     const { search, queries } = fakeSearch(MARKED)
     const h = createHarness({ search })
@@ -281,6 +384,12 @@ describe('POST /api/products/identify — transient search, local catalog', () =
     // Weak evidence is not normalized and cannot gain certainty.
     expect(res.body.results[1]).toMatchObject({ status: 'unresolved', outcome: 'provisional' })
     expect(ai.run).toHaveBeenCalledTimes(1)
+    const system = (seen[0] as { messages: { content: string }[] }).messages[0]!.content
+    // The tightened naming rules are part of the production prompt.
+    expect(system).toBe(NORMALIZATION_SYSTEM_PROMPT)
+    for (const rule of ['"Kirkland Signature" in full', 'Organic, Extra Crispy, Hand Soap', 'Chocolate, not "Choc"', 'Tortellini, not "Tort"', 'Remove promotional and price text', 'may be omitted when it does not materially distinguish', 'human-readable catalog name']) {
+      expect(system).toContain(rule)
+    }
     const user = (seen[0] as { messages: { content: string }[] }).messages[1]!.content
     const payload = JSON.parse(user.slice(user.indexOf('\n') + 1)) as Record<string, unknown>[]
     expect(payload.map((p) => p.itemNumber)).toEqual(['1627770'])

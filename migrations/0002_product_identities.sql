@@ -21,8 +21,9 @@ CREATE TABLE product_identities (
   product_type TEXT,
   -- Our confidence in the resolution, from the evidence class (never raised by AI).
   confidence REAL NOT NULL DEFAULT 0 CHECK (confidence >= 0 AND confidence <= 1),
-  -- Why we accepted it: Costco's own page named the item number, or 2+ independent agreeing sources did.
-  resolution_basis TEXT CHECK (resolution_basis IS NULL OR resolution_basis IN ('costco.com', 'corroborated')),
+  -- Why we accepted it: Costco's own page named the item number, a Costco-specialist product page
+  -- for exactly that item number did, or 2+ independent agreeing sources did.
+  resolution_basis TEXT CHECK (resolution_basis IS NULL OR resolution_basis IN ('costco.com', 'costco-specialist', 'corroborated')),
   -- Unresolved rows: what the last lookup found ('provisional' = one non-Costco source only).
   last_outcome TEXT CHECK (last_outcome IS NULL OR last_outcome IN ('provisional', 'not_found')),
   -- How the mapping was established: 'web-search' or 'web-search+ai' (AI-normalized name).

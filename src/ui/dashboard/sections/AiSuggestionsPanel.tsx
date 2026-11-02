@@ -84,7 +84,7 @@ export function AiSuggestionsPanel() {
         <p className="mt-2 text-sm text-slate-700" data-testid="identification-summary">
           Product lookup this session: {count(ai.identification.identified)} identified by item number
           {ai.identification.categorizedByRules > 0 && ` (${count(ai.identification.categorizedByRules)} now categorized by the description rules from the identified product name)`}
-          {ai.identification.provisional > 0 && `, ${count(ai.identification.provisional)} possible ${ai.identification.provisional === 1 ? 'match' : 'matches'} from a single non-Costco source (not used)`}
+          {ai.identification.provisional > 0 && `, ${count(ai.identification.provisional)} possible ${ai.identification.provisional === 1 ? 'match' : 'matches'} from a single unconfirmed source (not used)`}
           {ai.identification.notFound > 0 && `, ${count(ai.identification.notFound)} not found`}.
         </p>
       )}
@@ -161,12 +161,12 @@ export function AiSuggestionsPanel() {
                           <span className="text-xs text-slate-500">#{sg.itemNumber}</span>
                           {item?.identity ? (
                             <span className="block text-xs text-slate-600">
-                              In your catalog as {item.identity.canonicalName} ({item.identity.basis === 'costco.com' ? 'Costco.com' : 'two independent sources'})
+                              In your catalog as {item.identity.canonicalName} ({item.identity.basis === 'costco.com' ? 'Costco.com' : item.identity.basis === 'costco-specialist' ? 'Costco-specialist page' : 'two independent sources'})
                             </span>
                           ) : (
                             ai.possibleMatches.get(sg.itemNumber) && (
                               <span className="block text-xs text-slate-600">
-                                Possible match (one non-Costco source, not saved or used): {ai.possibleMatches.get(sg.itemNumber)}
+                                Possible match (one unconfirmed source, not saved or used): {ai.possibleMatches.get(sg.itemNumber)}
                               </span>
                             )
                           )}

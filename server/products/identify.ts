@@ -93,6 +93,26 @@ const short = (v: unknown, max: number): string | null => {
   return t && !/^(null|none|unknown|n\/a)$/i.test(t) ? t : null
 }
 
+/**
+ * The production normalization prompt. It only renames/describes an already
+ * identified item; it never decides identity or confidence.
+ */
+export const NORMALIZATION_SYSTEM_PROMPT = [
+  'You normalize product identities for a personal Costco spending dashboard.',
+  'Each input has a Costco item number, its abbreviated receipt description, and the title and snippet of a public web page that mentions that exact item number. The product is already identified; only name it well.',
+  'For each item return:',
+  '- normalizedName: a clean, human-readable catalog name, as a shopper would say it, at most 100 characters.',
+  '  * Keep the full brand name. Write "Kirkland Signature" in full; never shorten it to "KS" or "Kirkland".',
+  '  * Keep meaningful descriptors and product or model names, e.g. Organic, Extra Crispy, Hand Soap, Unscented, flavor, variety, model numbers.',
+  '  * Spell words out; never abbreviate them (Chocolate, not "Choc"; Tortellini, not "Tort"). Expand receipt abbreviations when the page text makes the full word clear.',
+  '  * Remove promotional and price text: prices, "$X off", "Sale", "Deal", "Save", "Instant Savings", "Online Only", store or website names, item numbers.',
+  '  * Package size or count may be omitted when it does not materially distinguish the product; keep it when it does (e.g. a 2-pack versus a single).',
+  '  * Prefer the complete descriptive name over a short label: "Kirkland Signature Tortellini Pasta Salad with Mozzarella Pearls and Dressing", not "KS Tort Pasta".',
+  '- brand: the full brand name, or null if not clear.',
+  '- productType: a short generic noun phrase such as "portable power station", "bidet toilet seat", "red wine", "indoor/outdoor mat", at most 40 characters, or null.',
+  'Use only the given text. Do not invent details that are not in it. Return exactly one entry per input itemNumber.',
+].join('\n')
+
 /** One Workers AI call that turns search results into clean name / brand / product type. Never trusted blindly. */
 export async function normalizeWithAi(
   ai: AiBinding,
@@ -108,8 +128,7 @@ export async function normalizeWithAi(
     messages: [
       {
         role: 'system',
-        content:
-          'You normalize product identities for a personal Costco spending dashboard. Each input has a Costco item number, its abbreviated receipt description, and the title and snippet of a public web page that mentions that exact item number. For each item return: normalizedName (the product name as a shopper would say it, with brand and size if present, at most 80 characters), brand (or null if not clear), productType (a short generic noun phrase such as "portable power station", "bidet toilet seat", "red wine", at most 40 characters, or null). Use only the given text. Do not invent details. Return exactly one entry per input itemNumber.',
+        content: NORMALIZATION_SYSTEM_PROMPT,
       },
       { role: 'user', content: `Normalize these ${payload.length} items. Return JSON {"items":[...]}.\n${JSON.stringify(payload)}` },
     ],

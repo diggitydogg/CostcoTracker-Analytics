@@ -68,13 +68,21 @@ export function searchQueries(itemNumber: string, receiptDescription: string): s
 /**
  * How strong the evidence for an identity is:
  * - `costco.com`: Costco's own page names this exact item number;
- * - `corroborated`: two or more independent sites (different hosts) name it and their titles agree;
- * - `single-source`: only one non-Costco site (or disagreeing sites) — provisional, not used automatically.
+ * - `costco-specialist`: a Costco-specific product database's page for exactly this
+ *   item number (Warehouse Runner's `/costco/<itemNumber>` product pages), as
+ *   returned by the search API. Such sites are never fetched directly;
+ * - `corroborated`: two or more independent sites name it and their titles agree;
+ * - `single-source`: only one ordinary site (or disagreeing sites): provisional, not used automatically.
  */
-export type Evidence = 'costco.com' | 'corroborated' | 'single-source'
+export type Evidence = 'costco.com' | 'costco-specialist' | 'corroborated' | 'single-source'
 
 /** Confidence comes ONLY from the evidence class; nothing downstream (including AI) may raise it. */
-export const EVIDENCE_CONFIDENCE: Record<Evidence, number> = { 'costco.com': 0.9, corroborated: 0.8, 'single-source': 0.4 }
+export const EVIDENCE_CONFIDENCE: Record<Evidence, number> = {
+  'costco.com': 0.9,
+  'costco-specialist': 0.85,
+  corroborated: 0.8,
+  'single-source': 0.4,
+}
 
 export type Candidate = {
   result: SearchResult
@@ -94,6 +102,39 @@ const hostOf = (url: string) => {
   }
 }
 
+/**
+ * The site a host belongs to, so subdomains of one site count as ONE source
+ * (app.warehouserunner.com and warehouserunner.com are the same site).
+ * Approximates the registrable domain: last two labels, or three for
+ * country-code second levels such as "co.uk".
+ */
+export function siteOf(host: string): string {
+  const labels = host.split('.').filter(Boolean)
+  const n = labels.length >= 3 && labels.at(-1)!.length === 2 && /^(co|com|org|net|gov|ac|edu)$/.test(labels.at(-2)!) ? 3 : 2
+  return labels.slice(-n).join('.')
+}
+
+/** Costco-specialist product databases trusted as exact-SKU evidence (exact hostnames only). */
+const SPECIALIST_HOSTS = new Set(['app.warehouserunner.com', 'warehouserunner.com'])
+
+/**
+ * Whether a search result is a Costco-specialist PRODUCT page for exactly this
+ * item number: an exact trusted hostname and the path `/costco/<itemNumber>`,
+ * optionally followed by `-<slug>` and/or a trailing slash. Category, store,
+ * search and deal-list pages never qualify, and neither does another item's page.
+ */
+export function isSpecialistProductPage(itemNumber: string, url: string): boolean {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return false
+  }
+  if (u.protocol !== 'https:' || !SPECIALIST_HOSTS.has(u.hostname.toLowerCase())) return false
+  const escaped = itemNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`^/costco/${escaped}(-[^/]*)?/?$`).test(u.pathname)
+}
+
 const STOP = new Set(['COSTCO', 'WHOLESALE', 'ITEM', 'THE', 'AND', 'FOR', 'WITH', 'PACK', 'COUNT', 'SHOP', 'BUY', 'DEALS', 'DEAL', 'SALE', 'PRICE'])
 /** Significant title words: letters, ≥ 3 characters, not boilerplate. */
 const words = (title: string) => new Set(title.toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w.length >= 3 && /[A-Z]/.test(w) && !STOP.has(w)))
@@ -109,20 +150,31 @@ export function titlesAgree(a: string, b: string): boolean {
  * Picks the result that identifies exactly this item number: it must appear
  * as a whole number in the title, URL or snippet. Returns null when no
  * result mentions the item number. Evidence (and therefore confidence):
- * Costco's own page > two agreeing independent sites > one other site.
+ * Costco's own page > a Costco-specialist product page for this item number
+ * > two agreeing independent sites > one other site.
  */
 export function pickCandidate(itemNumber: string, results: readonly SearchResult[]): Candidate | null {
   const escaped = itemNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const exact = new RegExp(`(^|[^A-Za-z0-9])${escaped}([^A-Za-z0-9]|$)`)
   const matching = results.filter((r) => exact.test(r.title) || exact.test(r.url) || exact.test(r.snippet))
   if (matching.length === 0) return null
-  // One result per host: several pages of one site are not independent sources.
-  const byHost = new Map<string, SearchResult>()
-  for (const r of matching) if (!byHost.has(hostOf(r.url))) byHost.set(hostOf(r.url), r)
-  const sources = byHost.size
-  const costco = [...byHost.entries()].find(([h]) => h === 'costco.com' || h.endsWith('.costco.com'))?.[1]
+  // One result per site: several pages (or subdomains) of one site are not independent sources.
+  const bySite = new Map<string, SearchResult>()
+  for (const r of matching) {
+    const site = siteOf(hostOf(r.url))
+    if (!bySite.has(site)) bySite.set(site, r)
+  }
+  const sources = bySite.size
+  const costco = matching.find((r) => {
+    const h = hostOf(r.url)
+    return h === 'costco.com' || h.endsWith('.costco.com')
+  })
   if (costco) return { result: costco, confidence: EVIDENCE_CONFIDENCE['costco.com'], evidence: 'costco.com', sources, corroboratingUrl: null }
-  const [first, ...others] = [...byHost.values()]
+  const specialist = matching.find((r) => isSpecialistProductPage(itemNumber, r.url))
+  if (specialist) {
+    return { result: specialist, confidence: EVIDENCE_CONFIDENCE['costco-specialist'], evidence: 'costco-specialist', sources, corroboratingUrl: null }
+  }
+  const [first, ...others] = [...bySite.values()]
   const agreeing = others.find((o) => titlesAgree(first!.title, o.title))
   if (agreeing) return { result: first!, confidence: EVIDENCE_CONFIDENCE.corroborated, evidence: 'corroborated', sources, corroboratingUrl: agreeing.url }
   return { result: first!, confidence: EVIDENCE_CONFIDENCE['single-source'], evidence: 'single-source', sources, corroboratingUrl: null }
@@ -132,7 +184,8 @@ export function pickCandidate(itemNumber: string, results: readonly SearchResult
 export function cleanProductTitle(title: string): string {
   let t = title.replace(/\s+/g, ' ').trim()
   for (let i = 0; i < 2; i++) {
-    t = t.replace(/\s*[|–—-]\s*(costco(\s+wholesale)?(\.com)?|costco\s+(insider|business center|deals?)|amazon\.com|walmart\.com|reddit|instacart)\s*$/i, '').trim()
+    t = t.replace(/\s*[|–—-]\s*(costco(\s+wholesale)?(\.com)?|costco\s+(insider|business center|deals?)|warehouse\s*runner|amazon\.com|walmart\.com|reddit|instacart)\s*$/i, '').trim()
+    t = t.replace(/\s*[|–—-]\s*image\s+\d+\s*$/i, '').trim()
   }
   t = t.replace(/^costco\s*[:|-]\s*/i, '').trim()
   return t.slice(0, 200)

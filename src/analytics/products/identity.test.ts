@@ -42,6 +42,7 @@ describe('deterministic rules on identified products', () => {
   it('uses only identities backed by Costco.com or two agreeing independent sources', () => {
     expect(identityTexts(identity('1', 'Anker Power Bank', { productType: 'power bank' }))).toEqual(['Anker Power Bank', 'power bank'])
     expect(identityTexts(identity('1', 'Anker Power Bank', { basis: 'corroborated', confidence: 0.8 }))).toEqual(['Anker Power Bank'])
+    expect(identityTexts(identity('1', 'Synthetic Test Mat', { basis: 'costco-specialist', confidence: 0.85 }))).toEqual(['Synthetic Test Mat'])
     // Defensive: a record that is somehow not trusted is never used.
     expect(identityTexts(identity('1', 'Anker Power Bank', { basis: 'single-source' as never }))).toEqual([])
     expect(identityTexts(identity('1', 'Anker Power Bank', { confidence: 0.5 }))).toEqual([])

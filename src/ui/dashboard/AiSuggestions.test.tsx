@@ -322,6 +322,15 @@ describe('identify by item number before asking the AI', () => {
     expect(within(dialog).getByTestId('category-basis')).toHaveTextContent('matched “ANKER” in the identified product name')
   })
 
+  it('names a Costco-specialist resolution in the item drawer', async () => {
+    const { user } = await start(identifierMock(), { '101': { ...FOUND['101']!, basis: 'costco-specialist', confidence: 0.85 } })
+    await user.click(within(screen.getByRole('navigation', { name: 'Dashboard sections' })).getByRole('button', { name: 'Items' }))
+    await user.click(screen.getAllByRole('button', { name: /ANKERSOLIX/ })[0]!)
+    expect(within(screen.getByRole('dialog')).getByTestId('product-identity')).toHaveTextContent(
+      'resolved from a Costco-specialist product page (Warehouse Runner) for this item number',
+    )
+  })
+
   it('skips the lookup for items already identified and still sends the rest to the AI', async () => {
     const identifier = identifierMock()
     const { user, fn } = await start(identifier, { '103': FOUND['103']! })
@@ -354,8 +363,8 @@ describe('identify by item number before asking the AI', () => {
     // Not categorized by the rules from a single third-party page: it goes to the AI like any unknown item.
     expect(fn.mock.calls[0]![0].map((i) => i.itemNumber)).toContain('101')
     expect(uncategorizedText()).toContain('ANKERSOLIX')
-    expect(await screen.findByTestId('identification-summary')).toHaveTextContent('0 identified by item number, 1 possible match from a single non-Costco source (not used), 3 not found.')
-    expect(await screen.findByTestId('suggestion-101')).toHaveTextContent('Possible match (one non-Costco source, not saved or used): Anker SOLIX C1000 Portable Power Station')
+    expect(await screen.findByTestId('identification-summary')).toHaveTextContent('0 identified by item number, 1 possible match from a single unconfirmed source (not used), 3 not found.')
+    expect(await screen.findByTestId('suggestion-101')).toHaveTextContent('Possible match (one unconfirmed source, not saved or used): Anker SOLIX C1000 Portable Power Station')
   })
 
   it('notes when web search is not set up', async () => {

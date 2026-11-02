@@ -40,7 +40,9 @@ export const identifyRequestSchema = z
 export type IdentifyRequestItem = SuggestRequestItem
 
 /** Why we accepted a resolution (our own classification of the evidence; no search content). */
-export type ResolutionBasis = 'costco.com' | 'corroborated'
+export type ResolutionBasis = 'costco.com' | 'costco-specialist' | 'corroborated'
+
+export const RESOLUTION_BASES: readonly ResolutionBasis[] = ['costco.com', 'costco-specialist', 'corroborated']
 
 /**
  * Our own resolved product record for a Costco item number (local catalog).
@@ -95,7 +97,7 @@ export const productIdentitySchema = z.object({
   brand: text,
   productType: text,
   confidence: z.number().min(0).max(1),
-  basis: z.enum(['costco.com', 'corroborated']),
+  basis: z.enum(['costco.com', 'costco-specialist', 'corroborated']),
   method: z.string(),
   resolvedAt: z.string(),
 })
@@ -129,14 +131,15 @@ export type ProductIdentities = Readonly<Record<string, ProductIdentity>>
 
 /**
  * Whether a local identity may feed the deterministic rules and the AI
- * prompt: resolved from Costco's own page or 2+ agreeing independent sources.
+ * prompt: resolved from Costco's own page, a Costco-specialist product page for
+ * that item number, or 2+ agreeing independent sources.
  * (Provisional evidence never becomes a local identity in the first place.)
  */
 export function isUsableIdentity(identity: ProductIdentity | undefined): identity is ProductIdentity {
   return (
     !!identity &&
     identity.status === 'resolved' &&
-    (identity.basis === 'costco.com' || identity.basis === 'corroborated') &&
+    RESOLUTION_BASES.includes(identity.basis) &&
     identity.confidence >= IDENTIFY_LIMITS.minConfidenceForUse
   )
 }
@@ -149,4 +152,16 @@ export function isUsableIdentity(identity: ProductIdentity | undefined): identit
 export function identityTexts(identity: ProductIdentity | undefined): string[] {
   if (!isUsableIdentity(identity)) return []
   return [identity.canonicalName, identity.productType].filter((t): t is string => typeof t === 'string' && t.trim() !== '')
+}
+
+/** How a resolution basis is described to the owner. */
+export function resolutionBasisLabel(basis: ResolutionBasis): string {
+  switch (basis) {
+    case 'costco.com':
+      return "Costco's own page for this item number"
+    case 'costco-specialist':
+      return "a Costco-specialist product page (Warehouse Runner) for this item number"
+    case 'corroborated':
+      return 'two independent sources that agree on this item number'
+  }
 }

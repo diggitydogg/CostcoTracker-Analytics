@@ -49,8 +49,8 @@ On every dashboard load, the resolved catalog is fetched once with the dataset (
 | `status` | `resolved` (permanent, never re-searched) or `unresolved` (retried after `retry_after`) |
 | `receipt_description` | The receipt text we looked up. This is our own data |
 | `canonical_name`, `brand`, `product_type` | Our canonical product record (resolved rows only) |
-| `confidence` | Our confidence, from the evidence class only (0.9 Costco.com, 0.8 corroborated) |
-| `resolution_basis` | Why we accepted it: `costco.com` or `corroborated` (our classification, not search content) |
+| `confidence` | Our confidence, from the evidence class only (0.9 Costco.com, 0.85 Costco-specialist, 0.8 corroborated) |
+| `resolution_basis` | Why we accepted it: `costco.com`, `costco-specialist` or `corroborated` (our classification, not search content) |
 | `last_outcome` | Unresolved rows: `provisional` (one non-Costco source) or `not_found` |
 | `method` | `web-search` or `web-search+ai` (AI-normalized name) |
 | `resolved_at`, `last_attempt_at`, `retry_after` | Timestamps |
@@ -85,12 +85,24 @@ Tests plant marker strings in snippets, URLs, thumbnails, non-chosen results and
   | Evidence (in the request) | Outcome saved | Confidence | Used by rules and the AI prompt? |
   |---|---|---|---|
   | Costco's own page names the exact item number | `resolved`, basis `costco.com` | 0.9 | Yes |
+  | A Costco-specialist **product page** for exactly that item number, as returned by Brave (see below) | `resolved`, basis `costco-specialist` | 0.85 | Yes |
   | 2+ independent sites (different hosts) name it **and** their titles agree (≥ 2 significant shared words) | `resolved`, basis `corroborated` | 0.8 | Yes |
-  | Only one non-Costco site, or sites that disagree | `unresolved`, outcome `provisional` (no details stored) | — | **No.** The candidate name is shown this session as a "possible match (not saved or used)"; the item goes to the AI step; it is looked up again after 30 days |
+  | Only one ordinary site, or sites that disagree | `unresolved`, outcome `provisional` (no details stored) | — | **No.** The candidate name is shown this session as a "possible match (not saved or used)"; the item goes to the AI step; it is looked up again after 30 days |
   | No result names the item number | `unresolved`, outcome `not_found` | — | No; retried after 30 days |
 
-- Several pages of the same site count as one source.
-- `isUsableIdentity` is the single gate for using a record: `resolved`, basis `costco.com` or `corroborated`, confidence ≥ 0.6.
+- Several pages of the same site count as one source, including its subdomains (`app.warehouserunner.com` and `warehouserunner.com` are one site).
+- `isUsableIdentity` is the single gate for using a record: `resolved`, basis `costco.com`, `costco-specialist` or `corroborated`, confidence ≥ 0.6.
+
+### Costco-specialist evidence (Warehouse Runner)
+Warehouse Runner keeps a Costco-specific product database keyed by Costco item number, and Brave indexes its product pages. A Brave result counts as `costco-specialist` evidence only when **all** of these hold (`isSpecialistProductPage` in `server/products/search.ts`):
+- the URL is `https` and its hostname is **exactly** `app.warehouserunner.com` or `warehouserunner.com`;
+- the path is `/costco/<itemNumber>`, optionally followed by `-<slug>` and/or `/`, for **this** item number (whole-number match, as everywhere else);
+- it is therefore a product page. Category, store, search and deal-list pages, and another item's page that merely mentions our number, are ordinary single-source evidence.
+
+**What we do and don't do:**
+- Warehouse Runner is never fetched, scraped or called. We use only the title Brave already returned, transiently, exactly as for any other result. There is no extra API key or cost.
+- Its prices, availability and related items are never read or stored. As with every search result, we keep only our own canonical record (name, brand, type, basis, confidence).
+- Their Terms of Use require their official Business API (`access@warehouserunner.com`) or written permission for automated catalog synchronization, bulk extraction or building product datasets. This feature does none of those: it makes owner-triggered Brave queries and never contacts Warehouse Runner.
 - **AI never manufactures certainty.** Confidence comes only from the evidence class. AI normalization runs only on strong candidates, and only renames or describes them; it never changes the outcome or confidence.
 - An unresolved item can later become resolved if stronger evidence appears at a retry. A resolved record is never overwritten by a lookup, because it is never looked up again.
 
@@ -101,6 +113,14 @@ Tests plant marker strings in snippets, URLs, thumbnails, non-chosen results and
 - Tests assert the exact queries.
 
 **Sent to Workers AI for normalization:** item number, receipt description, and the matched result's title and snippet. This is transient; it is not stored.
+
+**Naming rules for normalization** (`NORMALIZATION_SYSTEM_PROMPT` in `server/products/identify.ts`):
+- keep full brand names, especially "Kirkland Signature";
+- keep meaningful descriptors and product or model names (Organic, Extra Crispy, Hand Soap, …);
+- never abbreviate (Chocolate, not "Choc"; Tortellini, not "Tort");
+- remove promotional and price text;
+- package size or count may be dropped when it doesn't distinguish the product;
+- prefer a clean, human-readable catalog name over a short label.
 
 **Never sent:**
 - receipt barcode, order numbers, receipt or line IDs;
@@ -149,6 +169,9 @@ See `CLAUDE.md` for the bounded exception.
 - **Minimal AI:** at most one AI normalization call per request.
 - **Nothing runs in the background.**
 - **Brave pricing:** $5 per 1,000 requests, with $5 of monthly free credit. A few hundred unknown items use a few hundred to about a thousand queries, once.
+
+## Next: owner-confirmed identities (not built yet)
+Genuinely provisional items (one ordinary source) should eventually be confirmable by the owner: "Yes, this is the product". That would save our record with a separate basis such as `owner-confirmed`. Until then they stay unresolved and are retried after 30 days.
 
 ## Next: photo-based return matching (design, not built yet)
 

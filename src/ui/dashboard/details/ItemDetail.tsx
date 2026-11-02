@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { resolutionBasisLabel } from '../../../analytics/products/identityProtocol'
 import { dayNumber } from '../../../analytics/dates'
 import { LineChart } from '../charts/LineChart'
 import { SERIES } from '../charts/palette'
@@ -36,7 +37,7 @@ export function ItemDetail({ itemNumber }: { itemNumber: string }) {
             In your product catalog as <span className="font-medium text-slate-900">{item.identity.canonicalName}</span>
             {item.identity.brand && ` · ${item.identity.brand}`}
             {item.identity.productType && ` · ${item.identity.productType}`} · {share(item.identity.confidence, 0)} confidence · resolved{' '}
-            {item.identity.basis === 'costco.com' ? "from Costco's own page for this item number" : 'from two independent sources that agree on this item number'} on{' '}
+            {`from ${resolutionBasisLabel(item.identity.basis)}`} on{' '}
             {date(item.identity.resolvedAt)}
             {item.identity.method === 'web-search+ai' ? ' (name normalized by AI)' : ''}
           </p>
