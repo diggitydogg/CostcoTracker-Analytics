@@ -7,6 +7,7 @@ import { useDashboard } from '../context'
 import { COHORT_LABEL } from '../derive'
 import { change, count, date, days, daysBetween, money, moneyAxis, monthShort, share } from '../format'
 import { Badge, DrillLink, Facts, Panel, StatCard, TableWrap, td, tdNum, th, thNum } from '../ui'
+import { buildSuggestionItems } from '../../../analytics/categories/suggestProtocol'
 import { CategoryEditor } from './CategoryEditor'
 import { IdentityForm } from './IdentityForm'
 import { warehouseText } from './text'
@@ -33,7 +34,11 @@ export function ItemDetail({ itemNumber }: { itemNumber: string }) {
         {item.descriptions.length > 1 && (
           <p className="text-xs text-slate-500">Also recorded as: {item.descriptions.slice(1).join(' · ')}</p>
         )}
-        {item.identity && <ProductIdentityLine key={`${item.identity.canonicalName}|${item.identity.resolvedAt}`} itemName={item.displayDescription} identity={item.identity} />}
+        {item.identity ? (
+          <ProductIdentityLine key={`${item.identity.canonicalName}|${item.identity.resolvedAt}`} itemName={item.displayDescription} identity={item.identity} />
+        ) : (
+          <ConfirmIdentityLine itemNumber={item.itemNumber} itemName={item.displayDescription} descriptions={item.descriptions} />
+        )}
       </div>
 
       <dl className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-4">
@@ -274,6 +279,39 @@ function ProductIdentityLine({ itemName, identity }: { itemName: string; identit
             </button>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * For an item with no resolved catalog identity (cloud mode): the owner can
+ * confirm what the product is, directly from the drawer. Opening or saving
+ * never searches or calls the AI. The name is prefilled only from a possible
+ * match already shown in this session; otherwise it starts empty.
+ */
+function ConfirmIdentityLine({ itemNumber, itemName, descriptions }: { itemNumber: string; itemName: string; descriptions: readonly string[] }) {
+  const { catalog, ai } = useDashboard()
+  const [open, setOpen] = useState(false)
+  // The same sanitized receipt text the lookup sends (single-line, bounded); none → cannot be confirmed here.
+  const receipt = buildSuggestionItems([{ itemNumber, descriptions }])[0]?.descriptions[0]
+  if (!catalog || !receipt) return null
+  const possible = ai?.possibleMatches.get(itemNumber)
+  return (
+    <div data-testid="confirm-identity-block">
+      {possible && <p className="text-xs text-slate-600">Possible match (one unconfirmed source, not saved or used): {possible}</p>}
+      {open ? (
+        <IdentityForm
+          itemName={itemName}
+          initial={{ canonicalName: possible ?? '' }}
+          submitLabel="Save to my catalog"
+          onCancel={() => setOpen(false)}
+          onSubmit={(fields) => catalog.confirm(itemNumber, receipt, fields)}
+        />
+      ) : (
+        <button type="button" onClick={() => setOpen(true)} className={`${smallBtn} mt-1 border border-sky-300 bg-white text-sky-900 hover:bg-sky-50`}>
+          Confirm identity
+        </button>
       )}
     </div>
   )

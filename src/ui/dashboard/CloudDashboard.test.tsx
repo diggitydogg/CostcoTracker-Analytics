@@ -392,6 +392,50 @@ describe('owner-confirmed product identities (fake web search, mocked Workers AI
     expect(within(dialog).getByRole('region', { name: 'Category' })).toHaveTextContent('Uncategorized')
   })
 
+  it('confirms an unresolved item straight from the item drawer, without any search or AI request', async () => {
+    const { h, user, queries } = await start()
+    const mark = h.requests.length
+    // Find the item in Items by its number and open its drawer.
+    await section(user, 'Items')
+    await user.type(screen.getByPlaceholderText('Search description or item number'), ITEM)
+    await user.click(await screen.findByRole('button', { name: /SYN NECT/ }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByTestId('product-identity')).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('region', { name: 'Category' })).toHaveTextContent('Uncategorized')
+
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm identity' }))
+    const form = within(dialog).getByRole('form', { name: /Product identity for/ })
+    // Never looked up in this session → no candidate: the name starts empty.
+    const name = within(form).getByLabelText('Product name (required)')
+    expect(name).toHaveValue('')
+    await user.type(name, 'Synthetic Yellow Nectarines')
+    await user.type(within(form).getByLabelText('Product type (optional)'), 'stone fruit')
+    await user.click(within(form).getByRole('button', { name: 'Save to my catalog' }))
+
+    // The drawer updates at once: Owner confirmed identity, categorized by the rules from it.
+    expect(await within(dialog).findByTestId('product-identity')).toHaveTextContent('In your product catalog as Synthetic Yellow Nectarines · stone fruit · Owner confirmed on')
+    expect(within(dialog).queryByRole('button', { name: 'Confirm identity' })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('region', { name: 'Category' })).toHaveTextContent('Produce')
+    expect(within(dialog).getByTestId('category-basis')).toHaveTextContent('in the identified product name')
+    expect(within(dialog).getByRole('button', { name: 'Edit identity' })).toBeInTheDocument()
+
+    expect(dbRow(h)).toMatchObject({ status: 'resolved', resolution_basis: 'owner-confirmed', confidence: 1, canonical_name: 'Synthetic Yellow Nectarines', product_type: 'stone fruit', receipt_description: 'SYN NECT' })
+    // Only the confirm request was made: no lookup, no search, no AI.
+    expect(h.requests.slice(mark).map((r) => `${r.method} ${r.path}`)).toEqual(['POST /api/products/confirm'])
+    expect(queries).toEqual([])
+  })
+
+  it('prefills the drawer form from a possible match already shown in this session', async () => {
+    const { user } = await start()
+    await section(user, 'Categories')
+    await user.click(screen.getByRole('button', { name: 'Suggest categories with AI' }))
+    await screen.findByTestId(`suggestion-${ITEM}`)
+    const dialog = await openItem(user)
+    expect(within(dialog).getByTestId('confirm-identity-block')).toHaveTextContent('Possible match (one unconfirmed source, not saved or used)')
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm identity' }))
+    expect(within(dialog).getByLabelText('Product name (required)')).toHaveValue('Synthetic Yellow Nectarines 4 lb - Item 9000006')
+  })
+
   it('does not offer edit or remove for identities resolved automatically', async () => {
     const h = await createCloudHarness({
       search: { name: 'fake', search: vi.fn(async (q: string) => (q.includes(ITEM) ? [{ title: 'Synthetic Thing | Costco', url: 'https://www.costco.com/x.product.1.html', snippet: `Item ${ITEM}`, imageUrl: null }] : [])) },
@@ -407,5 +451,6 @@ describe('owner-confirmed product identities (fake web search, mocked Workers AI
     expect(within(dialog).getByTestId('product-identity')).toHaveTextContent("resolved from Costco's own page")
     expect(within(dialog).queryByRole('button', { name: 'Edit identity' })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole('button', { name: 'Remove identity' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Confirm identity' })).not.toBeInTheDocument()
   })
 })

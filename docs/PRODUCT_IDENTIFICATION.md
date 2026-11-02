@@ -179,7 +179,11 @@ See `CLAUDE.md` for the bounded exception.
 ## Owner-confirmed identities
 For an item number search could not resolve (provisional or not found), the owner can state what the product is.
 
-**Where:** Categories → AI category suggestions. A review row without a catalog record has **Confirm identity**. It opens a small form: product name (required), brand and product type (optional). For a provisional match the name is prefilled with the possible match, but nothing is saved until the owner clicks **Save to my catalog**.
+**Where:**
+- **Item drawer** (Items → search by item number or description → open the item): any item without a resolved catalog record shows **Confirm identity**. Opening or saving the form makes no search and no AI request; only the confirm request is sent.
+- **Categories → AI category suggestions:** review rows without a catalog record show the same action.
+
+Both open the same small form: product name (required), brand and product type (optional). The name is prefilled only from a possible match already shown in this session; otherwise it starts empty. Nothing is saved until the owner clicks **Save to my catalog**.
 
 **What is saved** (`server/products/ownerIdentity.ts`):
 - the owner's name, brand and type, plus our receipt description;
