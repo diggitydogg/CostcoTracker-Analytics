@@ -46,7 +46,7 @@ export function LoginScreen({
         </p>
       </div>
       {notice && <Notice tone="info">{notice}</Notice>}
-      <form onSubmit={submit} noValidate className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 sm:p-5">
+      <form onSubmit={submit} noValidate className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 @regular:p-5">
         <input type="text" name="username" autoComplete="username" value="owner" readOnly hidden />
         <label htmlFor={id} className="block text-sm font-medium">
           Access key

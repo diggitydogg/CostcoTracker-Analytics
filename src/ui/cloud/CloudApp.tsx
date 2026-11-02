@@ -99,8 +99,8 @@ export function CloudApp({
             />
           )}
           {tab !== 'dashboard' && (
-            // Management screens keep a comfortable reading width; the dashboard uses the full width.
-            <div className="max-w-5xl space-y-5">
+            // Management screens stay bounded and keep running text at a readable measure; the dashboard uses the full width.
+            <div className="readable-flow max-w-content space-y-5">
               <h2 className="sr-only">{TABS.find((t) => t.id === tab)!.label}</h2>
               {tab === 'overview' && (
                 <OverviewPanel formatVersion={state.formatVersion} onLogout={session.logout} onLogoutEverywhere={session.logoutEverywhere} />

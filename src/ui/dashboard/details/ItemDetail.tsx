@@ -41,7 +41,7 @@ export function ItemDetail({ itemNumber }: { itemNumber: string }) {
         )}
       </div>
 
-      <dl className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-4">
+      <dl className="grid grid-cols-1 gap-3 @pair:grid-cols-2 @regular:grid-cols-4">
         <StatCard label="Total spend" value={money(item.totalSpentCents)} detail={`${count(item.lineCount)} item lines`} />
         <StatCard label="Quantity" value={count(item.totalQuantity)} />
         <StatCard label="Purchases" value={count(item.purchaseEvents)} detail={`${count(item.distinctMonths)} different months`} />
@@ -165,7 +165,7 @@ export function ItemDetail({ itemNumber }: { itemNumber: string }) {
         )}
       </Panel>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 @regular:grid-cols-2">
         <Panel title="Returns" subtitle="Matched by item number only; not linked to a specific purchase.">
           {returns.length === 0 ? (
             <p className="text-sm text-slate-600">No returns recorded.</p>

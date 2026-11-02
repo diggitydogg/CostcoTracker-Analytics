@@ -50,14 +50,15 @@ export function IdentityForm({
   return (
     <form
       aria-label={`Product identity for ${itemName}`}
-      className="mt-2 space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2"
+      // Its own size container: in a narrow table cell or pane the fields stack; with room, brand and type sit side by side.
+      className="@container mt-2 space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2"
       onSubmit={(e) => {
         e.preventDefault()
         void submit()
       }}
     >
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <label htmlFor={`${id}-name`} className="flex flex-col text-xs text-slate-600 sm:col-span-3">
+      <div className="grid grid-cols-1 gap-2 @pair:grid-cols-2">
+        <label htmlFor={`${id}-name`} className="flex flex-col text-xs text-slate-600 @pair:col-span-2">
           Product name (required)
           <input id={`${id}-name`} className={input} value={name} maxLength={OWNER_IDENTITY_LIMITS.maxNameLength} onChange={(e) => setName(e.target.value)} required />
         </label>
@@ -65,7 +66,7 @@ export function IdentityForm({
           Brand (optional)
           <input id={`${id}-brand`} className={input} value={brand} maxLength={OWNER_IDENTITY_LIMITS.maxBrandLength} onChange={(e) => setBrand(e.target.value)} />
         </label>
-        <label htmlFor={`${id}-type`} className="flex flex-col text-xs text-slate-600 sm:col-span-2">
+        <label htmlFor={`${id}-type`} className="flex flex-col text-xs text-slate-600">
           Product type (optional)
           <input id={`${id}-type`} className={input} value={type} maxLength={OWNER_IDENTITY_LIMITS.maxTypeLength} onChange={(e) => setType(e.target.value)} placeholder="e.g. rain boots" />
         </label>

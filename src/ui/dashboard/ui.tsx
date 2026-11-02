@@ -19,13 +19,18 @@ export function Panel({
 }) {
   const id = `panel-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return (
-    <section aria-labelledby={id} className={`min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-5 ${className}`}>
+    // A size container: grids inside adapt to the panel's own width (a column, a pane, a sheet), not the window.
+    <section
+      aria-labelledby={id}
+      className={`@container min-w-0 rounded-xl border border-slate-200 bg-white p-[var(--panel-pad)] shadow-[0_1px_2px_rgba(15,23,42,0.04)] [--panel-pad:1rem] @regular:[--panel-pad:1.25rem] ${className}`}
+    >
       <header className="mb-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
-          <h3 id={id} className="text-[15px] font-semibold text-slate-900">
+          <h3 id={id} className="text-[0.9375rem] font-semibold text-slate-900">
             {title}
           </h3>
-          {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
+          {/* Explanations stay at a readable line length even in a wide panel. */}
+          {subtitle && <p className="mt-0.5 max-w-readable text-xs text-slate-500">{subtitle}</p>}
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </header>
@@ -42,7 +47,8 @@ export function StatCard({ label, value, detail, hint }: { label: string; value:
         <span>{label}</span>
         {hint && <InfoTip text={hint} />}
       </dt>
-      <dd className="mt-1 truncate text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{value}</dd>
+      {/* Never truncate a figure people compare: wrap as a last resort instead. */}
+      <dd className="mt-1 text-2xl font-semibold tracking-tight [overflow-wrap:anywhere] text-slate-900 tabular-nums">{value}</dd>
       {detail && <dd className="mt-1 text-xs text-slate-600">{detail}</dd>}
     </div>
   )
@@ -51,7 +57,7 @@ export function StatCard({ label, value, detail, hint }: { label: string; value:
 /** Small "i" with a native tooltip and an accessible name; the text is also exposed to screen readers. */
 export function InfoTip({ text }: { text: string }) {
   return (
-    <span title={text} className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-slate-300 text-[9px] font-semibold text-slate-500">
+    <span title={text} className="inline-flex h-[1.4em] w-[1.4em] shrink-0 cursor-help items-center justify-center rounded-full border border-slate-300 text-[0.5625rem] font-semibold text-slate-500">
       <span aria-hidden>i</span>
       <span className="sr-only">{text}</span>
     </span>
@@ -60,7 +66,7 @@ export function InfoTip({ text }: { text: string }) {
 
 /** Inline list of label/value pairs. */
 export function Facts({ items, columns = 2 }: { items: [string, ReactNode][]; columns?: 1 | 2 | 3 }) {
-  const cols = columns === 1 ? '' : columns === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-2 xl:grid-cols-3'
+  const cols = columns === 1 ? '' : columns === 2 ? '@regular:grid-cols-2' : '@regular:grid-cols-2 @spacious:grid-cols-3'
   return (
     <dl className={`grid grid-cols-1 gap-x-6 gap-y-2 text-sm ${cols}`}>
       {items.map(([k, v]) => (
@@ -83,7 +89,8 @@ export function Badge({ children, tone = 'slate', title }: { children: ReactNode
     violet: 'bg-violet-50 text-violet-800 ring-violet-200',
   }
   return (
-    <span title={title} className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${tones[tone]}`}>
+    // Badges stay on one line at normal text sizes; only when larger text leaves no room do they wrap instead of overflowing.
+    <span title={title} className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium ring-1 ring-inset ${tones[tone]}`}>
       {children}
     </span>
   )
@@ -194,7 +201,8 @@ export function DrillLink({ onClick, children, label }: { onClick: () => void; c
 /** Scrollable table wrapper: tables keep their columns and scroll sideways on narrow screens. */
 export function TableWrap({ children, label }: { children: ReactNode; label: string }) {
   return (
-    <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0" role="region" aria-label={label} tabIndex={0}>
+    // Compact: the table bleeds to the panel edges and scrolls sideways; the panel's padding is reused so they always match.
+    <div className="-mx-[var(--panel-pad,1rem)] overflow-x-auto overscroll-x-contain px-[var(--panel-pad,1rem)] @regular:mx-0 @regular:px-0" role="region" aria-label={label} tabIndex={0}>
       {children}
     </div>
   )

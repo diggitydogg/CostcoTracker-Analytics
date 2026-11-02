@@ -4,6 +4,8 @@ import type { AnalyticsExportV1 } from '../../domain/export/v1'
 import { createOverridesStore, type OverridesStore } from '../../persistence/overridesStore'
 import { DashboardContext, type CatalogEditor, type DashboardContextValue, type Drill, type Lookups } from './context'
 import { DrillDrawer } from './DrillDrawer'
+import { canSplit } from '../layout/tokens'
+import { useContainerWidth } from '../layout/useContainerWidth'
 import { count, date, todayIso } from './format'
 import { CategoriesSection } from './sections/CategoriesSection'
 import { InflationSection } from './sections/InflationSection'
@@ -95,18 +97,34 @@ export function Dashboard({
 
   const [tab, setTab] = useState<DashboardTab>(initialTab)
   const [stack, setStack] = useState<Drill[]>([])
-  const open = useCallback((d: Drill) => setStack((st) => [...st, d]), [])
+  // Choosing something in the dashboard shows it (replacing what was shown, like selecting another
+  // row of a split view's primary list); drilling further inside the detail pushes, so Back works.
+  const show = useCallback((d: Drill) => setStack([d]), [])
+  const push = useCallback((d: Drill) => setStack((st) => [...st, d]), [])
+  const selected = stack.length > 0 ? stack[stack.length - 1]! : null
+  // Layout from the space this dashboard actually has (not the device or orientation):
+  // with room for two legible panes the detail docks beside the dashboard; otherwise it is a sheet.
+  const [measure, width] = useContainerWidth<HTMLDivElement>()
+  const split = canSplit(width) && selected !== null
   const ctx = useMemo<DashboardContextValue>(
-    () => ({ s, lookups, open, overrides, today, ai, catalog: catalog ?? null }),
-    [s, lookups, open, overrides, today, ai, catalog],
+    () => ({ s, lookups, open: show, selected, overrides, today, ai, catalog: catalog ?? null }),
+    [s, lookups, show, selected, overrides, today, ai, catalog],
   )
+  const detailCtx = useMemo<DashboardContextValue>(() => ({ ...ctx, open: push }), [ctx, push])
 
   const q = s.quality
   const empty = s.trips.eventCount === 0 && s.index.returns.length === 0 && s.index.adjustments.length === 0
 
   return (
     <DashboardContext.Provider value={ctx}>
-      <div data-testid="dashboard" className="space-y-4">
+      {/* Same element tree in both layouts, so nothing remounts (search, filters, open forms survive). */}
+      <div
+        ref={measure}
+        data-testid="dashboard-layout"
+        data-layout={split ? 'split' : 'single'}
+        className={split ? 'grid grid-cols-[minmax(0,1fr)_var(--detail-pane-width)] items-start gap-4' : ''}
+      >
+      <div data-testid="dashboard" className="@container min-w-0 space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-tight text-slate-900">Your Costco spending</h2>
@@ -121,7 +139,7 @@ export function Dashboard({
           {toolbar && <div className="flex flex-wrap items-center gap-2">{toolbar}</div>}
         </div>
 
-        <nav aria-label="Dashboard sections" className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <nav aria-label="Dashboard sections" className="-mx-[var(--page-gutter)] overflow-x-auto px-[var(--page-gutter)] @regular:mx-0 @regular:px-0">
           <ul className="flex min-w-max gap-1 border-b border-slate-200">
             {TABS.map((t) => (
               <li key={t.id}>
@@ -153,14 +171,18 @@ export function Dashboard({
           </div>
         )}
       </div>
-      {stack.length > 0 && (
-        <DrillDrawer
-          drill={stack[stack.length - 1]!}
-          canGoBack={stack.length > 1}
-          onBack={() => setStack((st) => st.slice(0, -1))}
-          onClose={() => setStack([])}
-        />
+      {selected && (
+        <DashboardContext.Provider value={detailCtx}>
+          <DrillDrawer
+            drill={selected}
+            canGoBack={stack.length > 1}
+            onBack={() => setStack((st) => st.slice(0, -1))}
+            onClose={() => setStack([])}
+            presentation={split ? 'pane' : 'sheet'}
+          />
+        </DashboardContext.Provider>
       )}
+      </div>
     </DashboardContext.Provider>
   )
 }

@@ -64,7 +64,7 @@ export function DataQualityPanel({ className = '' }: { className?: string }) {
 
   return (
     <Panel title="About these numbers" className={className}>
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm md:grid-cols-2 2xl:grid-cols-3">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm @regular:grid-cols-2 @panoramic:grid-cols-3">
         {notes.map((n) => (
           <div key={n.key} className="min-w-0">
             <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{n.label}</dt>

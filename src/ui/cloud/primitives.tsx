@@ -53,7 +53,7 @@ export function Section({
 }) {
   const id = `section-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
   return (
-    <section aria-labelledby={id} className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5">
+    <section aria-labelledby={id} className="rounded-lg border border-slate-200 bg-white p-4 @regular:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 id={id} className="text-base font-semibold">

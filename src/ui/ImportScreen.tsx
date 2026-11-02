@@ -46,7 +46,7 @@ export function ImportScreen({ controller, onImported, onCancel }: Props) {
           void handleFile(e.dataTransfer.files[0])
         }}
         className={
-          'rounded-xl border-2 border-dashed p-6 text-center transition-colors sm:p-10 ' +
+          'rounded-xl border-2 border-dashed p-6 text-center transition-colors @regular:p-10 ' +
           (dragging ? 'border-sky-500 bg-sky-50' : 'border-slate-300 bg-white')
         }
       >

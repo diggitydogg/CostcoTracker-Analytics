@@ -26,11 +26,11 @@ export function CategoriesSection() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 @wide:grid-cols-5">
         <Panel
           title="Spend by category"
           subtitle={`Share of gross purchases. ${count(bySource.rule)} items categorized by description rules, ${count(bySource.override)} set by you, ${count(bySource.fallback)} uncategorized.`}
-          className="lg:col-span-2"
+          className="@wide:col-span-2"
         >
           <BarList
             label="Categories"
@@ -46,8 +46,8 @@ export function CategoriesSection() {
         </Panel>
 
         {current && (
-          <Panel title={current.label} subtitle={`${count(current.itemNumbers.length)} items · ${count(current.lineCount)} item lines · ${share(current.spendShare)} of spend`} className="lg:col-span-3">
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <Panel title={current.label} subtitle={`${count(current.itemNumbers.length)} items · ${count(current.lineCount)} item lines · ${share(current.spendShare)} of spend`} className="@wide:col-span-3">
+            <div className="grid grid-cols-1 gap-5 @regular:grid-cols-2">
               <div>
                 <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Subcategories</h4>
                 {current.subcategories.length <= 1 && current.subcategories[0]?.subcategoryId === null ? (
@@ -140,7 +140,7 @@ export function CategoriesSection() {
         {uncategorized.length === 0 ? (
           <p className="text-sm text-slate-600">Every purchased item has a category.</p>
         ) : (
-          <ul className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-sm md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-sm @regular:grid-cols-2 @spacious:grid-cols-3">
             {uncategorized.slice(0, 30).map((i) => (
               <li key={i.itemNumber} className="flex items-baseline justify-between gap-3 border-b border-slate-100 pb-1.5">
                 <span className="min-w-0 truncate">

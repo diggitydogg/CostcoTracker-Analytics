@@ -41,7 +41,7 @@ export function OverviewPanel({
         actions={<Button onClick={reload}>Refresh</Button>}
       >
         {error && <Notice tone="error">{error}</Notice>}
-        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm @regular:grid-cols-2">
           <Fact label="Connection" value={error ? 'Could not load status' : data ? 'Connected' : 'Checking…'} />
           <Fact label="Signed in as" value="Owner (this browser)" />
           <Fact label="Data format" value={formatVersion ? `Export version ${formatVersion}` : '—'} />
@@ -62,7 +62,7 @@ export function OverviewPanel({
 
       <Section title="Stored in the cloud" description="Counts of records currently kept in your cloud database.">
         {data ? (
-          <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="cloud-counts">
+          <dl className="grid grid-cols-2 gap-3 @wide:grid-cols-4" data-testid="cloud-counts">
             <Count label="Receipts / orders" value={data.meta.counts.receipts} />
             <Count label="Items" value={data.meta.counts.items} />
             <Count label="Returns" value={data.meta.counts.returns} />
