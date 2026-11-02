@@ -38,3 +38,17 @@ export const CATEGORY_SUGGESTION_MODEL_OPTIONS = {
  * most 25 items, and the dashboard sends at most 4 requests per click.
  */
 export const CATEGORY_SUGGESTION_RATE_LIMIT = { maxRequests: 12, windowMs: 5 * 60 * 1000 } as const
+
+/**
+ * Model that reads visual evidence from a product photo (photo matching).
+ * Meta Llama 4 Scout 17B on Workers AI: natively multimodal (image + text),
+ * generally available, no separate license-acceptance call. Runs in the
+ * owner's own Cloudflare account like every other model here. The image is
+ * passed as an OpenAI-style `image_url` data URI in the user message (one
+ * adapter: server/products/photo.ts → buildEvidenceInput). Change only here.
+ */
+export const PHOTO_EVIDENCE_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct'
+
+/** Best-effort per-isolate limits for owner-triggered photo matching (each click = 1 vision call + at most 1 search request). */
+export const PHOTO_EVIDENCE_RATE_LIMIT = { maxRequests: 20, windowMs: 10 * 60 * 1000 } as const
+export const PHOTO_SEARCH_RATE_LIMIT = { maxRequests: 20, windowMs: 10 * 60 * 1000 } as const

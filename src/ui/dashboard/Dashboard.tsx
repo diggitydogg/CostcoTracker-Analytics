@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode
 import { buildAnalyticsSnapshot, type DatasetSourceInfo } from '../../analytics'
 import type { AnalyticsExportV1 } from '../../domain/export/v1'
 import { createOverridesStore, type OverridesStore } from '../../persistence/overridesStore'
-import { DashboardContext, type CatalogEditor, type DashboardContextValue, type Drill, type Lookups } from './context'
+import { DashboardContext, type CatalogEditor, type DashboardContextValue, type Drill, type Lookups, type PhotoServices } from './context'
 import { DrillDrawer } from './DrillDrawer'
 import { canSplit } from '../layout/tokens'
 import { useContainerWidth } from '../layout/useContainerWidth'
@@ -58,6 +58,7 @@ export function Dashboard({
   productIdentities,
   onIdentities,
   catalog,
+  photo,
 }: {
   data: AnalyticsExportV1
   source: DatasetSourceInfo
@@ -75,6 +76,8 @@ export function Dashboard({
   onIdentities?: (found: ProductIdentity[]) => void
   /** Cloud mode only: confirm, edit and remove owner-confirmed product identities. */
   catalog?: CatalogEditor
+  /** Cloud mode only: photo matching's AI and search steps. */
+  photo?: PhotoServices
 }) {
   const store = overridesStore ?? getDefaultStore()
   const overrides = useCategoryOverrides(store)
@@ -112,10 +115,11 @@ export function Dashboard({
   // What the current detail was opened from (the tapped control), as a scroll anchor for closing.
   const openedFrom = useRef<Element | null>(null)
   const show = useCallback(
-    (d: Drill) => {
+    (d: Drill, options?: { anchor?: Element | null }) => {
       opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null
-      openedFrom.current = lastPointerDownTarget() ?? opener.current
-      if (willResizeMaster.current(true)) anchorScroll(master.current, openedFrom.current)
+      const tapped = lastPointerDownTarget()
+      openedFrom.current = options?.anchor ?? (tapped && master.current?.contains(tapped) ? tapped : opener.current)
+      if (willResizeMaster.current(true)) anchorScroll(master.current, openedFrom.current, opener.current)
       setStack([d])
     },
     [anchorScroll],
@@ -137,8 +141,8 @@ export function Dashboard({
     willResizeMaster.current = (opening) => canSplit(width) && (opening ? selected === null : selected !== null)
   }, [width, selected])
   const ctx = useMemo<DashboardContextValue>(
-    () => ({ s, lookups, open: show, selected, overrides, today, ai, catalog: catalog ?? null }),
-    [s, lookups, show, selected, overrides, today, ai, catalog],
+    () => ({ s, lookups, open: show, selected, overrides, today, ai, catalog: catalog ?? null, photo: photo ?? null }),
+    [s, lookups, show, selected, overrides, today, ai, catalog, photo],
   )
   const detailCtx = useMemo<DashboardContextValue>(() => ({ ...ctx, open: push }), [ctx, push])
 

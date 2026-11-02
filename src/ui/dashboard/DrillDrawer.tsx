@@ -98,7 +98,7 @@ export function DrillDrawer({
   switch (drill.kind) {
     case 'item':
       title = s.items.byItemNumber.get(drill.itemNumber)?.displayDescription ?? `Item ${drill.itemNumber}`
-      body = <ItemDetail itemNumber={drill.itemNumber} />
+      body = <ItemDetail itemNumber={drill.itemNumber} {...(drill.match ? { match: drill.match } : {})} />
       break
     case 'receipt': {
       const e = s.index.eventsById.get(drill.id)

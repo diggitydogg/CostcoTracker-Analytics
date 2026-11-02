@@ -60,6 +60,17 @@ Never sent: receipt/order IDs or numbers, barcodes, purchase dates, warehouse or
 
 AI output is a suggested category, never source truth. Nothing changes until the owner accepts or edits a suggestion, which then becomes an ordinary browser-side category override. Suggestions are not stored in the cloud. Details: `docs/AI_CATEGORY_SUGGESTIONS.md`.
 
+## Photo-to-product matching
+
+Optional, cloud-only and owner-triggered: **Items → Find item from photo**.
+
+- **On the device first.** Barcodes and text are read on the device (OCR in the browser, self-hosted) and matched against the owner's own purchases in the browser. Nothing is sent anywhere for this.
+- **AI only when the owner asks.** If the item isn't identified and the owner clicks **Analyze photo with AI**, one re-encoded photo is sent to Workers AI in the owner's own Cloudflare account. It has no metadata (location, device and time are removed) and goes with a fixed instruction. Nothing else is sent: no purchases, receipts, prices, dates, warehouses or account data.
+- **Search with text only.** If still needed, the brand, product name and variant read from the photo are searched as described below. The photo is never sent to the search provider.
+- **Nothing is stored.** The app keeps no photo, evidence or result. Saving a product identity is a separate, explicit owner action.
+
+Details: `docs/PHOTO_MATCHING.md`.
+
 ## Product identification (web search)
 
 Optional and cloud-only. It runs only when the owner clicks **Suggest categories with AI**, which first looks up Uncategorized item numbers that are not yet in the owner's local product catalog.

@@ -39,6 +39,9 @@ import {
 } from '../src/analytics/products/identityProtocol'
 import { CATALOG_WRITE_RATE_LIMIT, IDENTIFY_RATE_LIMIT, searchFromEnv } from './products/config'
 import { confirmOwnerIdentity, removeOwnerIdentity, updateOwnerIdentity } from './products/ownerIdentity'
+import { extractPhotoEvidence, searchPhotoCandidates } from './products/photo'
+import { PHOTO_LIMITS, photoEvidenceRequestSchema, photoSearchRequestSchema } from '../src/analytics/products/photoMatch'
+import { PHOTO_EVIDENCE_RATE_LIMIT, PHOTO_SEARCH_RATE_LIMIT } from './ai/config'
 import { identitiesFor, identifyItems, listIdentities } from './products/identify'
 import type { WebSearch } from './products/search'
 import { SUGGEST_LIMITS, suggestRequestSchema } from '../src/analytics/categories/suggestProtocol'
@@ -62,6 +65,8 @@ export type AppDeps = {
   aiLimiter?: { check(now: Date): void }
   /** Limits product identification requests; defaults to one shared per isolate. */
   identifyLimiter?: { check(now: Date): void }
+  /** Limits photo identification (vision and search); defaults to ones shared per isolate. */
+  photoLimiters?: { evidence: { check(now: Date): void }; search: { check(now: Date): void } }
   /** Limits owner catalog edits (confirm / edit / remove); defaults to one shared per isolate. */
   catalogLimiter?: { check(now: Date): void }
   /** Web search provider; defaults to the one configured by SEARCH_API_KEY (tests inject a fake). */
@@ -69,6 +74,10 @@ export type AppDeps = {
 }
 
 const defaultIdentifyLimiter = createRateLimiter(IDENTIFY_RATE_LIMIT, 'Too many product lookup requests. Wait a few minutes and try again.')
+const defaultPhotoLimiters = {
+  evidence: createRateLimiter(PHOTO_EVIDENCE_RATE_LIMIT, 'Too many photo identifications. Wait a few minutes and try again.'),
+  search: createRateLimiter(PHOTO_SEARCH_RATE_LIMIT, 'Too many photo searches. Wait a few minutes and try again.'),
+}
 const defaultCatalogLimiter = createRateLimiter(CATALOG_WRITE_RATE_LIMIT, 'Too many catalog changes. Wait a few minutes and try again.')
 
 const SMALL_BODY = 4 * 1024
@@ -86,6 +95,7 @@ type Ctx = {
   aiLimiter: { check(now: Date): void }
   identifyLimiter: { check(now: Date): void }
   catalogLimiter: { check(now: Date): void }
+  photoLimiters: { evidence: { check(now: Date): void }; search: { check(now: Date): void } }
   search: WebSearch | null
 }
 type Route = { method: string; pattern: RegExp; access: Access; handle: (ctx: Ctx) => Promise<Response> }
@@ -407,6 +417,33 @@ const routes: Route[] = [
     access: 'owner',
     handle: async ({ db }) => json({ identities: await listIdentities(db) }),
   },
+  // Photo matching (owner-triggered). These endpoints never read purchase data: the local match runs in the browser.
+  {
+    method: 'POST',
+    pattern: /^\/api\/products\/photo\/evidence$/,
+    access: 'owner',
+    handle: async ({ request, env, now, photoLimiters }) => {
+      const { image } = parseWith(photoEvidenceRequestSchema, await readJson(request, PHOTO_LIMITS.maxRequestBytes))
+      photoLimiters.evidence.check(now)
+      return json({ evidence: await extractPhotoEvidence(env.AI, image) })
+    },
+  },
+  {
+    method: 'POST',
+    pattern: /^\/api\/products\/photo\/search$/,
+    access: 'owner',
+    handle: async ({ request, now, search, photoLimiters }) => {
+      const body = parseWith(photoSearchRequestSchema, await readJson(request, 2 * 1024))
+      if (!search) return json({ searchConfigured: false, candidates: [] })
+      photoLimiters.search.check(now)
+      try {
+        return json({ searchConfigured: true, candidates: await searchPhotoCandidates(search, body) })
+      } catch (error) {
+        console.error('photo_search_error', error instanceof Error ? error.message.slice(0, 40) : 'unknown')
+        throw new ApiError(502, 'search_failed', 'The product search failed. You can try again later.')
+      }
+    },
+  },
   // Owner-confirmed identities: the owner states what an unresolved item is. Only these can be edited or removed.
   {
     method: 'POST',
@@ -496,6 +533,7 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
         aiLimiter: deps.aiLimiter ?? defaultSuggestionLimiter,
         identifyLimiter: deps.identifyLimiter ?? defaultIdentifyLimiter,
         catalogLimiter: deps.catalogLimiter ?? defaultCatalogLimiter,
+        photoLimiters: deps.photoLimiters ?? defaultPhotoLimiters,
         search: deps.search !== undefined ? deps.search : searchFromEnv(deps.env),
       })
     } catch (error) {
