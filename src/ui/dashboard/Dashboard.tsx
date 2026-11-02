@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { buildAnalyticsSnapshot, type DatasetSourceInfo } from '../../analytics'
 import type { AnalyticsExportV1 } from '../../domain/export/v1'
 import { createOverridesStore, type OverridesStore } from '../../persistence/overridesStore'
@@ -6,6 +6,7 @@ import { DashboardContext, type CatalogEditor, type DashboardContextValue, type 
 import { DrillDrawer } from './DrillDrawer'
 import { canSplit } from '../layout/tokens'
 import { useContainerWidth } from '../layout/useContainerWidth'
+import { useInputModalityTracking } from '../layout/inputModality'
 import { count, date, todayIso } from './format'
 import { CategoriesSection } from './sections/CategoriesSection'
 import { InflationSection } from './sections/InflationSection'
@@ -99,7 +100,15 @@ export function Dashboard({
   const [stack, setStack] = useState<Drill[]>([])
   // Choosing something in the dashboard shows it (replacing what was shown, like selecting another
   // row of a split view's primary list); drilling further inside the detail pushes, so Back works.
-  const show = useCallback((d: Drill) => setStack([d]), [])
+  // The control that opened the current detail (the selected row), updated on every selection, so
+  // closing returns to where the person is now, not to the row that first opened the detail.
+  const opener = useRef<HTMLElement | null>(null)
+  const show = useCallback((d: Drill) => {
+    opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null
+    setStack([d])
+  }, [])
+  const getOpener = useCallback(() => (opener.current?.isConnected ? opener.current : null), [])
+  useInputModalityTracking()
   const push = useCallback((d: Drill) => setStack((st) => [...st, d]), [])
   const selected = stack.length > 0 ? stack[stack.length - 1]! : null
   // Layout from the space this dashboard actually has (not the device or orientation):
@@ -179,6 +188,7 @@ export function Dashboard({
             onBack={() => setStack((st) => st.slice(0, -1))}
             onClose={() => setStack([])}
             presentation={split ? 'pane' : 'sheet'}
+            getOpener={getOpener}
           />
         </DashboardContext.Provider>
       )}

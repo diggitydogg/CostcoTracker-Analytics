@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { focusWithoutScrolling, lastInputModality } from '../layout/inputModality'
 import { useDashboard, type Drill } from './context'
 import { InflationLinkDetail } from './details/InflationLinkDetail'
 import { ItemDetail } from './details/ItemDetail'
@@ -21,9 +22,20 @@ export type DetailPresentation = 'sheet' | 'pane'
 /**
  * Drill-down detail. Both presentations render the same element tree, so
  * switching between them (rotation, resizing, opening/closing a foldable)
- * keeps everything inside: scroll position aside, open forms and their
- * unsaved input survive. Focus moves into it when a new detail opens and
- * returns to the opening control when it closes.
+ * keeps everything inside: open forms and their unsaved input survive.
+ *
+ * Focus follows the presentation's semantics, and never scrolls the page
+ * (`preventScroll`):
+ * - sheet (modal dialog): focus moves to Close when a detail opens or when
+ *   the detail becomes modal; on close it returns to the control that opened
+ *   the current detail.
+ * - pane (persistent secondary pane of a split view): selecting another row
+ *   by touch or pointer leaves focus — and the person's place in the list —
+ *   where it is; a keyboard selection moves focus into the pane. On close,
+ *   focus only moves if it was inside the pane (a keyboard user closing it),
+ *   and then to the row of the *current* selection, never to the row that
+ *   first opened the pane.
+ * The pane's own scroll resets to the top for each new detail.
  */
 export function DrillDrawer({
   drill,
@@ -31,12 +43,15 @@ export function DrillDrawer({
   onBack,
   onClose,
   presentation = 'sheet',
+  getOpener = () => null,
 }: {
   drill: Drill
   canGoBack: boolean
   onBack: () => void
   onClose: () => void
   presentation?: DetailPresentation
+  /** The control that opened the current detail (the selected row), for returning focus. */
+  getOpener?: () => HTMLElement | null
 }) {
   const pane = presentation === 'pane'
   // A full-width sheet meets the screen edges, so it keeps clear of the safe area; a docked pane does not.
@@ -45,23 +60,38 @@ export function DrillDrawer({
   const closeRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
+  // The latest presentation, for effects and handlers that must not re-run when it changes (synced before they run).
+  const presentationRef = useRef(presentation)
+  useLayoutEffect(() => {
+    presentationRef.current = presentation
+  }, [presentation])
+
+  // A new detail: its own scroll starts at the top. Focus moves in for a sheet, or for a keyboard selection in a pane.
   useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null
-    return () => opener?.focus?.()
-  }, [])
-  useEffect(() => {
-    closeRef.current?.focus()
     panelRef.current?.scrollTo?.({ top: 0 })
+    if (presentationRef.current === 'sheet' || lastInputModality() === 'keyboard') focusWithoutScrolling(closeRef.current)
   }, [drill])
+  // Becoming modal (a pane turns into a sheet when space shrinks): focus belongs inside the dialog.
+  useEffect(() => {
+    if (!pane && !panelRef.current?.contains(document.activeElement)) focusWithoutScrolling(closeRef.current)
+  }, [pane])
+
+  const close = useCallback(() => {
+    const focusInside = panelRef.current?.contains(document.activeElement) ?? false
+    // Sheet: dialog semantics, return focus to the opener. Pane: only rescue focus that would be lost with the pane.
+    if (presentationRef.current === 'sheet' || focusInside) focusWithoutScrolling(getOpener())
+    onClose()
+  }, [onClose, getOpener])
+
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape') return
       // A modal sheet closes on Escape from anywhere; a docked pane only when focus is inside it.
-      if (!pane || panelRef.current?.contains(e.target as Node)) onClose()
+      if (!pane || panelRef.current?.contains(e.target as Node)) close()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose, pane])
+  }, [close, pane])
 
   let title: string
   let body: ReactNode
@@ -95,7 +125,7 @@ export function DrillDrawer({
       data-presentation={presentation}
       className={pane ? 'sticky top-4 min-w-0 self-start' : 'safe-top safe-bottom fixed inset-0 z-40 flex justify-end'}
     >
-      {pane ? null : <div className="absolute inset-0 bg-slate-900/30" onClick={onClose} aria-hidden />}
+      {pane ? null : <div className="absolute inset-0 bg-slate-900/30" onClick={close} aria-hidden />}
       <div
         ref={panelRef}
         role={pane ? 'region' : 'dialog'}
@@ -116,7 +146,7 @@ export function DrillDrawer({
           <h2 id="drill-title" className="line-clamp-2 min-w-0 flex-1 text-base font-semibold break-words text-slate-900">
             {title}
           </h2>
-          <button ref={closeRef} type="button" onClick={onClose} className="min-h-11 rounded-md border border-slate-300 bg-white px-3 py-1 text-sm hover:bg-slate-100">
+          <button ref={closeRef} type="button" onClick={close} className="min-h-11 rounded-md border border-slate-300 bg-white px-3 py-1 text-sm hover:bg-slate-100">
             Close
           </button>
         </div>

@@ -87,6 +87,19 @@ The dashboard measures its own width:
   - The selected Items row is **persistently highlighted** (`aria-current`), as Apple's split-view guidance asks.
   - Escape closes the pane only when focus is inside it.
 
+**Focus differs by presentation, because a modal sheet and a persistent pane are different things.** All programmatic focus uses `preventScroll`, so moving focus never scrolls the page.
+
+| | Modal sheet | Docked pane (split view) |
+|---|---|---|
+| A detail opens | Focus moves to Close | Pointer or touch selection: focus stays in the list, so the person keeps their place. Keyboard selection (Enter on a row): focus moves into the pane |
+| Another row is selected | — (the sheet covers the list) | Same as opening. The pane's own scroll resets to the top; the page does not move |
+| It closes | Focus returns to the control that opened this detail | Focus moves only if it was inside the pane (keyboard Close or Escape), and then to the row of the *current* selection. It never returns to the row that first opened the pane |
+| Space shrinks from pane to sheet | Focus moves into the dialog | — |
+
+The opener is recorded on every selection, not once when the detail first mounts. Input modality (keyboard or pointer) comes from `src/ui/layout/inputModality.ts`.
+
+**Found on hardware:** on an iPhone Duo, selecting several rows and then closing the pane made the list jump. Every selection focused the pane's Close button, and closing returned focus to the first row. Reproduced in Chromium: closing jumped from y=1796 to y=541. After the fix the page stays at y=1796 through select, select, close, keyboard open and Escape.
+
 **Same element tree in both forms:** the sheet and the pane render the same tree, and only classes and ARIA roles change. A resize, rotation or fold therefore never remounts the detail or the dashboard. Things that survive:
 - the selected item and the drill-down stack (Back);
 - the active tab;

@@ -126,6 +126,86 @@ describe('adaptive layout: wide (split) width', () => {
   })
 })
 
+describe('adaptive layout: focus never scrolls the page', () => {
+  /** Every programmatic focus the dashboard makes, with its target and options. */
+  function spyFocus() {
+    const calls: { el: HTMLElement; options: FocusOptions | undefined }[] = []
+    const original = HTMLElement.prototype.focus
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+      calls.push({ el: this, options })
+      return original.call(this, options)
+    })
+    return { calls, spy, ours: () => calls.filter((c) => c.options !== undefined) }
+  }
+
+  it('pane: selecting other rows by pointer leaves focus in the list, and closing never returns to the first row', async () => {
+    const { user } = renderAt(WIDE)
+    await tab(user, 'Items')
+    const rows = itemButtons()
+    const focus = spyFocus()
+    await user.click(rows[2]!)
+    expect(detail()).toHaveAttribute('data-presentation', 'pane')
+    await user.click(rows[9]!)
+    await user.click(rows[12]!)
+    // Nothing focused inside the pane: Safari would scroll the page to reveal it.
+    expect(focus.ours().filter((c) => detail().contains(c.el))).toEqual([])
+    expect(document.activeElement).not.toBe(within(detail()).getByRole('button', { name: 'Close' }))
+    // The pane's own scroll still starts at the top for each new item (it is the pane, not the page).
+    await user.click(within(detail()).getByRole('button', { name: 'Close' }))
+    // Focus goes to the row of the current selection — never back to the row that first opened the pane.
+    expect(document.activeElement).toBe(rows[12])
+    expect(document.activeElement).not.toBe(rows[2])
+    for (const c of focus.ours()) expect(c.options).toEqual({ preventScroll: true })
+    focus.spy.mockRestore()
+  })
+
+  it('pane: a keyboard selection moves focus into the pane, and Escape returns it to that row', async () => {
+    const { user } = renderAt(WIDE)
+    await tab(user, 'Items')
+    const rows = itemButtons()
+    const focus = spyFocus()
+    rows[5]!.focus()
+    await user.keyboard('{Enter}')
+    expect(detail()).toHaveAttribute('data-presentation', 'pane')
+    expect(document.activeElement).toBe(within(detail()).getByRole('button', { name: 'Close' }))
+    // Tab stays usable inside the pane; Escape (focus inside) closes it.
+    await user.keyboard('{Escape}')
+    expect(screen.queryByTestId('detail')).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(rows[5])
+    for (const c of focus.ours()) expect(c.options).toEqual({ preventScroll: true })
+    focus.spy.mockRestore()
+  })
+
+  it('sheet: dialog focus is unchanged — Close is focused on open and focus returns to the opener on close', async () => {
+    const { user } = renderAt(COMPACT_PHONE)
+    await tab(user, 'Items')
+    const rows = itemButtons()
+    const focus = spyFocus()
+    await user.click(rows[7]!)
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true')
+    expect(document.activeElement).toBe(within(detail()).getByRole('button', { name: 'Close' }))
+    await user.click(within(detail()).getByRole('button', { name: 'Close' }))
+    expect(document.activeElement).toBe(rows[7])
+    // Backdrop and Escape close the same way.
+    await user.click(rows[3]!)
+    await user.keyboard('{Escape}')
+    expect(document.activeElement).toBe(rows[3])
+    expect(focus.ours().length).toBeGreaterThan(0)
+    for (const c of focus.ours()) expect(c.options).toEqual({ preventScroll: true })
+    focus.spy.mockRestore()
+  })
+
+  it('a pane that becomes a modal sheet when space shrinks takes focus into the dialog', async () => {
+    const { user, resize } = renderAt(WIDE)
+    await tab(user, 'Items')
+    await user.click(itemButtons()[1]!)
+    expect(detail().contains(document.activeElement)).toBe(false)
+    resize(COMPACT_PHONE)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(detail().contains(document.activeElement)).toBe(true)
+  })
+})
+
 describe('adaptive layout: resizing and rotation keep state', () => {
   it('keeps the selected item, search and filters through compact ↔ wide changes', async () => {
     const { user, resize } = renderAt(WIDE)
