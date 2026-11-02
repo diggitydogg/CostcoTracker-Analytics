@@ -6,11 +6,21 @@ import { AI_SUGGESTIONS } from '../aiConfig'
 import { aiCandidates } from '../derive'
 import { useDashboard } from '../context'
 import { count, share } from '../format'
-import { Badge, Panel, Segmented, TableWrap, th } from '../ui'
+import { Badge, Panel, Segmented, th } from '../ui'
 import { IdentityForm } from '../details/IdentityForm'
 
 
 const btn = 'rounded-md px-2.5 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40'
+/**
+ * Review rows: stacked in compact width; once the panel has room, one shared set of five columns
+ * (the table defines them, row groups and rows inherit them through subgrid, so every row lines up
+ * with the headers whatever its content).
+ */
+const tableGrid = '@wide:grid @wide:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto_minmax(0,1.4fr)_auto] @wide:gap-x-2'
+const groupGrid = '@wide:col-span-full @wide:grid @wide:grid-cols-subgrid'
+const rowGrid = 'grid grid-cols-1 @wide:col-span-full @wide:grid-cols-subgrid @wide:items-start'
+/** Field names shown beside the values only while stacked (the column headers serve screen readers in both forms). */
+const inlineLabel = 'text-xs text-slate-500 @wide:hidden'
 
 /**
  * Optional AI category suggestions (cloud mode). Flow: deterministic rules →
@@ -162,26 +172,32 @@ export function AiSuggestionsPanel() {
           {shown.length === 0 ? (
             <p className="rounded-md border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-600">Nothing left to review here.</p>
           ) : (
-            <TableWrap label="AI suggestions table">
-              <table className="w-full min-w-[48rem] text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th scope="col" className={th}>Costco description</th>
-                    <th scope="col" className={th}>Suggestion</th>
-                    <th scope="col" className={th}>Confidence</th>
-                    <th scope="col" className={th}>Reason</th>
-                    <th scope="col" className={th}>
+            /*
+             * A table by role, laid out with CSS grid so it adapts to the space the panel has:
+             * compact, each suggestion stacks with its actions in reach (no sideways scrolling to
+             * Accept); with room, the familiar columns. The column headers stay in the accessibility
+             * tree in both forms, so a screen reader always hears them.
+             */
+            <div role="region" aria-label="AI suggestions table" className="@container">
+              <div role="table" aria-label="AI suggestions" className={`text-sm ${tableGrid}`}>
+                <div role="rowgroup" className={groupGrid}>
+                  <div role="row" className={`${rowGrid} sr-only border-b border-slate-200 @wide:not-sr-only`}>
+                    <span role="columnheader" className={th}>Costco description</span>
+                    <span role="columnheader" className={th}>Suggestion</span>
+                    <span role="columnheader" className={th}>Confidence</span>
+                    <span role="columnheader" className={th}>Reason</span>
+                    <span role="columnheader" className={th}>
                       <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
+                    </span>
+                  </div>
+                </div>
+                <div role="rowgroup" className={groupGrid}>
                   {shown.map((sg) => {
                     const item = s.items.byItemNumber.get(sg.itemNumber)
                     const name = item?.displayDescription ?? `Item ${sg.itemNumber}`
                     return (
-                      <tr key={sg.itemNumber} className="border-b border-slate-100 align-top last:border-0" data-testid={`suggestion-${sg.itemNumber}`}>
-                        <td className="px-2 py-2">
+                      <div role="row" key={sg.itemNumber} className={`${rowGrid} border-b border-slate-100 py-1 last:border-0`} data-testid={`suggestion-${sg.itemNumber}`}>
+                        <div role="cell" className="min-w-0 px-2 py-1 @wide:py-2 break-words">
                           <span className="block font-medium text-slate-900">{name}</span>
                           <span className="text-xs text-slate-500">#{sg.itemNumber}</span>
                           {item?.identity ? (
@@ -200,7 +216,7 @@ export function AiSuggestionsPanel() {
                                   type="button"
                                   onClick={() => setConfirming(sg.itemNumber)}
                                   aria-label={`Confirm identity for ${name}`}
-                                  className={`${btn} mt-1 border border-sky-300 bg-white text-sky-900 hover:bg-sky-50`}
+                                  className={`${btn} mt-1 block border border-sky-300 bg-white text-sky-900 hover:bg-sky-50`}
                                 >
                                   Confirm identity
                                 </button>
@@ -220,24 +236,29 @@ export function AiSuggestionsPanel() {
                               )}
                             </>
                           )}
-                        </td>
-                        <td className="px-2 py-2">
+                        </div>
+                        <div role="cell" className="px-2 py-1 @wide:py-2">
+                          <span aria-hidden className={inlineLabel}>Suggestion: </span>
                           {sg.categoryId === null ? (
                             <span className="italic text-slate-500">No suggestion (AI abstained)</span>
                           ) : (
                             `${categoryLabel(sg.categoryId)}${sg.subcategoryId ? ` › ${subcategoryLabel(sg.categoryId, sg.subcategoryId)}` : ''}`
                           )}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2 tabular-nums">
+                        </div>
+                        <div role="cell" className="px-2 py-1 whitespace-nowrap tabular-nums @wide:py-2">
+                          <span aria-hidden className={inlineLabel}>Confidence: </span>
                           {sg.categoryId === null ? '—' : share(sg.confidence, 0)}
                           {isHigh(sg) && (
                             <span className="ml-1.5">
                               <Badge tone="green">High</Badge>
                             </span>
                           )}
-                        </td>
-                        <td className="max-w-[18rem] px-2 py-2 text-slate-600">{sg.reason || '—'}</td>
-                        <td className="px-2 py-2">
+                        </div>
+                        <div role="cell" className="max-w-readable min-w-0 px-2 py-1 text-slate-600 @wide:py-2">
+                          <span aria-hidden className={inlineLabel}>Reason: </span>
+                          {sg.reason || '—'}
+                        </div>
+                        <div role="cell" className="px-2 py-1 @wide:py-2">
                           {editing === sg.itemNumber ? (
                             <ChangeForm
                               initial={sg}
@@ -278,13 +299,13 @@ export function AiSuggestionsPanel() {
                               </button>
                             </div>
                           )}
-                        </td>
-                      </tr>
+                        </div>
+                      </div>
                     )
                   })}
-                </tbody>
-              </table>
-            </TableWrap>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}

@@ -1,13 +1,108 @@
 @import 'tailwindcss';
 
+/*
+ * Adaptive layout tokens (see docs/ADAPTIVE_LAYOUT.md and src/ui/layout/tokens.ts,
+ * which mirrors these values; a test keeps them in sync).
+ *
+ * Following Apple's Layout guidance, layout decisions are made from the space
+ * actually available to a region, never from device type or orientation:
+ * every width below is used with CSS container queries (`@regular:` etc.)
+ * against the nearest `@container`, or with useContainerWidth() in JS.
+ *
+ * Each `--container-*` variable gives both a container-query variant
+ * (`@regular:grid-cols-2`) and a max-width utility (`max-w-readable`).
+ */
+@theme {
+  /* Two small cards fit side by side (wider phones in compact width). */
+  --container-pair: 24rem;
+  /* Comfortable line length for prose (UIKit's readable content guide, ~70 characters). */
+  --container-readable: 42rem;
+  /* The horizontal size class: below this a region is "compact", from here "regular". */
+  --container-regular: 44rem;
+  /* A full sheet (drill-down) in compact presentation. */
+  --container-sheet: 48rem;
+  /* More columns for summary grids. */
+  --container-wide: 60rem;
+  /* Management pages (forms, lists) stay bounded instead of stretching. */
+  --container-content: 64rem;
+  /*
+   * Enough room for a primary list and a detail pane side by side (split view): the smallest
+   * width where both stay genuinely usable = detail pane minimum (22rem, see --detail-pane-width)
+   * + gap (1rem) + primary minimum (29rem: wider than any compact-width iPhone column, so the
+   * dashboard never has less room than it has on a phone). Tuned on real hardware: 64rem kept an
+   * unfolded large display in landscape on the sheet.
+   */
+  --container-split: 52rem;
+  --container-spacious: 76rem;
+  --container-panoramic: 92rem;
+  /* The page never grows past this, so very large windows keep content centered. */
+  --container-page: 100rem;
+}
+
+:root {
+  /* Page margins: at least the safe area, otherwise a margin that grows a little with the window. */
+  --page-gutter: clamp(1rem, 2.5vw, 2rem);
+  /* Width of a docked detail pane in split presentation. */
+  --detail-pane-width: clamp(22rem, 38%, 36rem);
+}
+
+/* Horizontal page margins that respect the safe area (notches, side-placed system controls). */
+@utility page-gutter {
+  padding-left: max(var(--page-gutter), env(safe-area-inset-left));
+  padding-right: max(var(--page-gutter), env(safe-area-inset-right));
+}
+@utility safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+@utility safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+/* Keeps running text at a readable measure while tables and charts in the same region use the full width. */
+@utility readable-flow {
+  & :where(p, li, dd, label, legend) {
+    max-width: var(--container-readable);
+  }
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    /* No translucent gray flash over tapped controls; controls keep their own feedback. */
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Controls: no double-tap-zoom delay, and long-press does not select their label. Content text stays selectable. */
+  button,
+  a,
+  select,
+  summary,
+  [role='button'],
+  [role='radio'],
+  [role='tab'] {
+    touch-action: manipulation;
+  }
+  button,
+  [role='button'],
+  [role='radio'],
+  [role='tab'] {
+    -webkit-user-select: none;
+    user-select: none;
   }
   body {
     @apply bg-slate-50 text-slate-900 antialiased;
   }
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-sky-600;
+  }
+}
+
+/*
+ * iOS zooms the page into any text field under 16px and does not zoom back out.
+ * Unlayered on purpose, so it wins over size utilities such as text-sm on touch screens only.
+ */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: max(1rem, 16px);
   }
 }

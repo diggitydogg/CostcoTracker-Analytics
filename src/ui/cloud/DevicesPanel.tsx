@@ -73,7 +73,7 @@ export function DevicesPanel({ now = () => new Date() }: { now?: () => Date }) {
                 <>
                   <p className="text-sm text-sky-950">Your connection code</p>
                   <p
-                    className="mt-1 font-mono text-2xl font-semibold tracking-wider whitespace-nowrap text-slate-900 sm:text-4xl sm:tracking-widest"
+                    className="mt-1 font-mono text-2xl font-semibold tracking-wider whitespace-nowrap text-slate-900 @regular:text-4xl @regular:tracking-widest"
                     aria-label={`Connection code ${code.code.split('').join(' ')}`}
                   >
                     {code.code}

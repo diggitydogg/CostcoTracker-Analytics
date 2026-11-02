@@ -59,7 +59,7 @@ export function DatasetShell({ dataset, onImportAnother }: { dataset: LoadedData
           <h2 id="summary-title" className="text-xl font-semibold">
             Imported records
           </h2>
-          <dl className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 lg:grid-cols-4">
+          <dl className="grid grid-cols-1 gap-3 @pair:grid-cols-2 @wide:grid-cols-4">
             <Stat label="Receipts / orders" value={summary.receiptCount} />
             <Stat label="Items" value={summary.itemCount} />
             <Stat label="Returns" value={summary.returnCount} />
@@ -97,7 +97,7 @@ export function DatasetShell({ dataset, onImportAnother }: { dataset: LoadedData
           <h2 id="details-title" className="text-xl font-semibold">
             Import details
           </h2>
-          <dl className="grid grid-cols-1 gap-x-6 gap-y-2 rounded-lg border border-slate-200 bg-white p-4 text-sm sm:grid-cols-[max-content_1fr]">
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-2 rounded-lg border border-slate-200 bg-white p-4 text-sm @regular:grid-cols-[max-content_1fr]">
             <dt className="font-medium text-slate-600">Source</dt>
             <dd className="break-all">{dataset.meta.sourceLabel}</dd>
             <dt className="font-medium text-slate-600">Format version</dt>

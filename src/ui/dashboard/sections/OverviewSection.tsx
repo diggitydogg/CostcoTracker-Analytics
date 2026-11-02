@@ -38,7 +38,7 @@ export function OverviewSection({ onShowTab }: { onShowTab: (t: DashboardTab) =>
         </p>
       </div>
 
-      <dl className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6" aria-label="Summary">
+      <dl className="grid grid-cols-1 gap-3 @pair:grid-cols-2 @wide:grid-cols-3 @panoramic:grid-cols-6" aria-label="Summary">
         <StatCard
           label="Net Costco spend"
           value={moneyWhole(t.netCents)}
@@ -79,7 +79,7 @@ export function OverviewSection({ onShowTab }: { onShowTab: (t: DashboardTab) =>
 
       <SpendingChartPanel />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 @wide:grid-cols-2 @panoramic:grid-cols-3">
         <Panel title="Shopping trips" subtitle="Baskets are estimated from exported item lines and are pre-tax.">
           <Facts
             items={[
@@ -172,7 +172,7 @@ export function OverviewSection({ onShowTab }: { onShowTab: (t: DashboardTab) =>
           )}
         </Panel>
 
-        <DataQualityPanel className="2xl:col-span-3" />
+        <DataQualityPanel className="@panoramic:col-span-3" />
       </div>
     </div>
   )

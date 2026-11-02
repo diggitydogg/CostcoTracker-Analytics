@@ -175,6 +175,14 @@ describe('AI category suggestions — review workflow', () => {
     expect(fn).toHaveBeenCalledTimes(2)
     expect(fn.mock.calls[0]![0]).toHaveLength(25)
     expect(within(screen.getByRole('region', { name: 'AI suggestions table' })).getAllByRole('row')).toHaveLength(26)
+    // Adaptive review list: a table by role (headers announced in every layout), never a sideways-scrolling wrapper,
+    // and each row carries its own actions so they stay in reach in compact width.
+    const review = screen.getByRole('table', { name: 'AI suggestions' })
+    expect(within(review).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Costco description', 'Suggestion', 'Confidence', 'Reason', 'Actions'])
+    expect(screen.getByRole('region', { name: 'AI suggestions table' })).not.toHaveClass('overflow-x-auto')
+    const firstRow = within(review).getAllByRole('row')[1]!
+    expect(within(firstRow).getAllByRole('cell')).toHaveLength(5)
+    expect(within(firstRow).getByRole('button', { name: /^Accept suggestion for/ })).toBeInTheDocument()
     const failedBatch = fn.mock.calls[1]![0].map((i) => i.itemNumber)
     await user.click(screen.getByRole('button', { name: 'Retry failed items (9)' }))
     await waitFor(() => expect(fn).toHaveBeenCalledTimes(3))

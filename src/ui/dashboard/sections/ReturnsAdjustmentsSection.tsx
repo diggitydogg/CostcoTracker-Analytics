@@ -12,7 +12,7 @@ import { Badge, DrillLink, Panel, Segmented, StatCard, TableWrap, td, tdNum, th,
  */
 export function ReturnsAdjustmentsSection() {
   return (
-    <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 @panoramic:grid-cols-2">
       <ReturnsPanel />
       <AdjustmentsPanel />
     </div>
@@ -51,7 +51,7 @@ function ReturnsPanel() {
   return (
     <section aria-label="Returns" className="space-y-4">
       <h3 className="text-base font-semibold text-slate-900">Returns</h3>
-      <dl className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
+      <dl className="grid grid-cols-1 gap-3 @pair:grid-cols-2 @spacious:grid-cols-4">
         <StatCard label="Returned merchandise" value={money(r.amountCents)} detail={r.withoutAmount.count > 0 ? `${count(r.withoutAmount.count)} without a recorded amount` : 'Recorded amounts'} />
         <StatCard label="Returns" value={count(r.count)} detail={`${count(r.distinctTransactions)} return transactions`} />
         <StatCard label="Quantity returned" value={count(r.quantity)} />
@@ -173,7 +173,7 @@ function AdjustmentsPanel() {
   return (
     <section aria-label="Price adjustments" className="space-y-4">
       <h3 className="text-base font-semibold text-slate-900">Price adjustments</h3>
-      <dl className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
+      <dl className="grid grid-cols-1 gap-3 @pair:grid-cols-2 @spacious:grid-cols-4">
         <StatCard label="Recovered" value={money(a.totalCents)} detail={`${count(a.count)} adjustments`} />
         <StatCard label="Average adjustment" value={money(a.averageCents)} />
         <StatCard

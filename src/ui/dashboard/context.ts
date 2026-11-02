@@ -51,6 +51,8 @@ export type DashboardContextValue = {
   s: AnalyticsSnapshot
   lookups: Lookups
   open: (d: Drill) => void
+  /** What the detail (sheet or pane) currently shows, so lists can highlight the selection. */
+  selected: Drill | null
   overrides: OverridesState
   /** Today's date (YYYY-MM-DD), used only for "days ago" wording. */
   today: string

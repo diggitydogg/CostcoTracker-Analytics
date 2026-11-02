@@ -1,3 +1,4 @@
+import { pageFooter, pageMain } from './ui/layout/shell'
 import { useMemo, useState } from 'react'
 import { useDatasetController } from './app/useDatasetController'
 import { createDatasetStore, type DatasetStore } from './persistence/datasetStore'
@@ -30,7 +31,7 @@ export function LocalFileApp({ store }: { store?: DatasetStore }) {
           setShowImport(false)
         }}
       />
-      <main className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-6 sm:px-6 lg:px-8">
+      <main className={pageMain}>
         {controller.notice && (
           <p role="status" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             {controller.notice}
@@ -57,7 +58,7 @@ export function LocalFileApp({ store }: { store?: DatasetStore }) {
           )
         )}
       </main>
-      <footer className="border-t border-slate-200 px-4 py-4 text-center text-xs text-slate-500">
+      <footer className={pageFooter}>
         Your data is processed in this browser and is not uploaded anywhere.
       </footer>
     </div>

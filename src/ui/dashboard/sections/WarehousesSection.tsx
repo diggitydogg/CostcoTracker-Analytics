@@ -19,15 +19,15 @@ export function WarehousesSection() {
 
   return (
     <div className="space-y-4">
-      <dl className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
+      <dl className="grid grid-cols-1 gap-3 @pair:grid-cols-2 @spacious:grid-cols-4">
         <StatCard label="In warehouse" value={moneyWhole(w.channels.warehouse.spendCents)} detail={`${count(w.channels.warehouse.events)} purchases · ${share(w.channels.warehouse.spendShare)} of spend`} />
         <StatCard label="Online orders" value={moneyWhole(w.channels.online.spendCents)} detail={`${count(w.channels.online.events)} orders · ${share(w.channels.online.spendShare)} of spend`} />
         <StatCard label="Average warehouse basket" value={money(w.channels.warehouse.averageBasketCents)} />
         <StatCard label="Average online order" value={money(w.channels.online.averageBasketCents)} />
       </dl>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
-        <Panel title="Spend by location" subtitle="Share of gross purchases." className="xl:col-span-2">
+      <div className="grid grid-cols-1 gap-4 @spacious:grid-cols-5">
+        <Panel title="Spend by location" subtitle="Share of gross purchases." className="@spacious:col-span-2">
           <BarList
             label="Spend by location"
             rows={w.groups.slice(0, 12).map((g) => ({
@@ -41,7 +41,7 @@ export function WarehousesSection() {
           />
         </Panel>
 
-        <Panel title="All locations" subtitle="Select a location to see its purchases. Different spellings are only merged when they differ by case or spacing." className="xl:col-span-3">
+        <Panel title="All locations" subtitle="Select a location to see its purchases. Different spellings are only merged when they differ by case or spacing." className="@spacious:col-span-3">
           <TableWrap label="Locations table">
             <table className="w-full min-w-[40rem] text-sm">
               <thead>

@@ -31,7 +31,8 @@ const PAGE = 50
 
 
 export function ItemsSection() {
-  const { s, open } = useDashboard()
+  const { s, open, selected } = useDashboard()
+  const selectedItem = selected?.kind === 'item' ? selected.itemNumber : null
   const [search, setSearch] = useState('')
   const deferred = useDeferredValue(search)
   const [filter, setFilter] = useState<ItemFilter>('all')
@@ -65,9 +66,9 @@ export function ItemsSection() {
       title="Item explorer"
       subtitle={`${itemsSummary(s.items.itemCounts)} Recent = bought in the last ${s.thresholds.recentDays} days of the data. Prices are recorded unit prices only.`}
     >
-      <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-1 flex-col gap-2 sm:flex-row">
-          <label className="min-w-0 flex-1 sm:max-w-sm">
+      <div className="mb-3 flex flex-col gap-2 @wide:flex-row @wide:items-center @wide:justify-between">
+        <div className="flex flex-1 flex-col gap-2 @regular:flex-row">
+          <label className="min-w-0 flex-1 @regular:max-w-sm">
             <span className="sr-only">Search items</span>
             <input
               type="search"
@@ -130,7 +131,7 @@ export function ItemsSection() {
                   >
                     <button type="button" onClick={() => sortBy(c.key)} className="inline-flex items-center gap-1 hover:text-slate-900">
                       {c.label}
-                      <span aria-hidden className="text-[10px]">
+                      <span aria-hidden className="text-[0.625rem]">
                         {sort === c.key ? (descending ? '▼' : '▲') : ''}
                       </span>
                     </button>
@@ -140,10 +141,17 @@ export function ItemsSection() {
             </thead>
             <tbody>
               {rows.slice(0, limit).map((i) => (
-                <tr key={i.itemNumber} className="border-b border-slate-100 hover:bg-slate-50">
+                <tr
+                  key={i.itemNumber}
+                  // Apple (split views): persistently highlight the selection that leads to the detail.
+                  aria-current={selectedItem === i.itemNumber ? 'true' : undefined}
+                  className={`border-b border-slate-100 ${selectedItem === i.itemNumber ? 'bg-sky-50' : 'hover:bg-slate-50'}`}
+                >
                   <td className="max-w-[22rem] px-2 py-2">
                     <button type="button" onClick={() => open({ kind: 'item', itemNumber: i.itemNumber })} className="block max-w-full text-left">
-                      <span className="block truncate font-medium text-sky-900 hover:underline">{i.displayDescription}</span>
+                      <span className="block truncate font-medium text-sky-900 hover:underline" title={i.displayDescription}>
+                        {i.displayDescription}
+                      </span>
                       <span className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
                         #{i.itemNumber}
                         <span aria-hidden>·</span>

@@ -35,7 +35,7 @@ export function InflationSection() {
         receipts, not an official inflation figure (CPI).
       </p>
 
-      <dl className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
+      <dl className="grid grid-cols-1 gap-3 @pair:grid-cols-2 @spacious:grid-cols-4">
         <StatCard
           label={latest ? `Your basket, year over year (${latest.from} → ${latest.to})` : 'Your basket, year over year'}
           value={change(latest?.weightedChange)}

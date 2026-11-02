@@ -1,5 +1,5 @@
 import { IDBFactory } from 'fake-indexeddb'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildAnalyticsSnapshot } from '../../analytics'
@@ -8,6 +8,7 @@ import type { AnalyticsExportV1 } from '../../domain/export/v1'
 import { createOverridesStore, type OverridesStore } from '../../persistence/overridesStore'
 import { Dashboard } from './Dashboard'
 import { count, money, moneyWhole, share } from './format'
+import { mockAvailableWidth } from '../../test/resize'
 
 const SOURCE = { source: 'local-file' as const }
 const TABS = ['Overview', 'Items', 'Price index', 'Categories', 'Returns & adjustments', 'Warehouses']
@@ -322,26 +323,13 @@ describe('warehouses', () => {
 
 describe('responsive charts', () => {
   it('draws charts at the measured container width', async () => {
-    let callback: ResizeObserverCallback | null = null
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        constructor(cb: ResizeObserverCallback) {
-          callback = cb
-        }
-        observe() {}
-        disconnect() {}
-      },
-    )
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 320, height: 0, top: 0, left: 0, right: 320, bottom: 0, x: 0, y: 0, toJSON() {} })
+    const space = mockAvailableWidth(320)
     renderDashboard(dataset())
     const svg = screen.getByRole('group', { name: /Monthly spending chart/ })
     expect(svg).toHaveAttribute('width', '320')
-    expect(callback).not.toBeNull()
-    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({ width: 900, height: 0, top: 0, left: 0, right: 900, bottom: 0, x: 0, y: 0, toJSON() {} })
-    act(() => callback!([], {} as ResizeObserver))
+    space.resize(900)
     expect(svg).toHaveAttribute('width', '900')
-    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockRestore()
+    space.restore()
   })
 
   it('wraps wide tables in horizontally scrollable regions', async () => {

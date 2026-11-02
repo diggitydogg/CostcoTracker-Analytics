@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { pageFooter, pageHeader, pageMain, pageRow } from './ui/layout/shell'
 import type { CloudApi } from './cloud/api'
 import { LocalFileApp } from './LocalFileApp'
 import type { DatasetStore } from './persistence/datasetStore'
@@ -23,8 +24,8 @@ export function App({
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
+      <header className={pageHeader}>
+        <div className={`${pageRow} flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3`}>
           <h1 className="text-lg font-semibold tracking-tight">CostcoTracker Analytics</h1>
           <nav aria-label="Data source">
             <ul className="flex gap-1 text-sm">
@@ -51,14 +52,14 @@ export function App({
       </header>
       {mode === 'cloud' ? (
         <>
-          <main className="mx-auto w-full max-w-[100rem] flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <main className={pageMain}>
             <CloudApp
               {...(api ? { api } : {})}
               onOpenFile={() => setMode('file')}
               {...(cloudTestOptions ? { testOptions: cloudTestOptions } : {})}
             />
           </main>
-          <footer className="border-t border-slate-200 px-4 py-4 text-center text-xs text-slate-500">
+          <footer className={pageFooter}>
             Your purchase data stays in your own cloud. Optional product identification sends only the Costco item number and abbreviated product description to the configured search provider. No trackers.
           </footer>
         </>

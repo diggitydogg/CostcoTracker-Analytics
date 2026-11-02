@@ -118,7 +118,7 @@ export function LineChart({
             {series.map((s) => {
               const p = s.points[idx]
               return (
-                <div key={s.key} className="flex items-center gap-1.5">
+                <div key={s.key} className="flex min-w-0 flex-wrap items-center gap-x-1.5">
                   <span aria-hidden className="inline-block h-0.5 w-3 rounded" style={{ backgroundColor: s.color }} />
                   <dt className="text-slate-600">{s.label}</dt>
                   <dd className="font-semibold tabular-nums text-slate-900">{p && p.value !== null ? formatValue(p.value) : 'not available'}</dd>
@@ -129,7 +129,7 @@ export function LineChart({
           {footer?.(idx)}
         </div>
         {onOpen && (
-          <button type="button" onClick={() => onOpen(idx)} className="shrink-0 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-100">
+          <button type="button" onClick={() => onOpen(idx)} className="max-w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-100">
             {openLabel ? openLabel(idx) : 'Details'}
           </button>
         )}
