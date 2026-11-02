@@ -9,10 +9,12 @@
  *   this terminal for review and then discarded.
  * - SKUs come from one of two local sources (nothing is ever committed):
  *   1. LIVE_SKUS_FROM_EXPORT=<Export V1 file>, e.g. the dashboard's Backup
- *      download: the file is validated by the normal importer and read only;
- *      the first LIVE_N (default 15) distinct non-empty item numbers in file
- *      order are tested once each, with the receipt description of their
- *      first occurrence. Nothing else from the file is used.
+ *      download: the file is validated by the normal importer and read only.
+ *      Distinct non-empty item numbers are taken in file order, each once with
+ *      the receipt description of its first occurrence; LIVE_OFFSET (default 0)
+ *      of them are skipped and the next LIVE_N (default 15) are tested, so
+ *      LIVE_OFFSET=0 is the first batch, LIVE_OFFSET=15 the next, and so on.
+ *      Nothing else from the file is used.
  *   2. Otherwise a manual list in `.live-skus.json` (gitignored) or LIVE_SKUS_FILE:
  *        [{ "itemNumber": "1234567", "description": "KS EXAMPLE", "expect": "optional note" }]
  * - Only the item number and the (sanitized) receipt description are sent, as in production.
@@ -29,7 +31,8 @@ type Sku = { itemNumber: string; description: string; expect?: string }
 const key = process.env.SEARCH_API_KEY?.trim()
 const file = process.env.LIVE_SKUS_FILE ?? '.live-skus.json'
 const exportFile = process.env.LIVE_SKUS_FROM_EXPORT?.trim()
-const firstN = Number(process.env.LIVE_N ?? 15)
+const batchSize = Number(process.env.LIVE_N ?? 15)
+const offset = Number(process.env.LIVE_OFFSET ?? 0)
 /** Stay well under Brave's per-second limit. */
 const DELAY_MS = Number(process.env.LIVE_DELAY_MS ?? 1100)
 const MAX_SKUS = 25
@@ -45,7 +48,10 @@ const host = (url: string) => {
 
 describe.skipIf(!key)('live Brave product identification', () => {
   it('classifies representative Costco SKUs (search only, nothing stored)', async () => {
-    const skus = exportFile ? firstDistinctSkus(exportFile, firstN) : manualSkus()
+    expect(Number.isInteger(offset) && offset >= 0, 'LIVE_OFFSET must be a whole number ≥ 0').toBe(true)
+    expect(Number.isInteger(batchSize) && batchSize >= 1, 'LIVE_N must be a whole number ≥ 1').toBe(true)
+    const skus = exportFile ? distinctSkus(exportFile, offset, batchSize) : manualSkus()
+    if (exportFile) console.log(`Distinct SKUs #${offset + 1}–#${offset + skus.length} (LIVE_OFFSET=${offset}, LIVE_N=${batchSize}) from the export file`)
     expect(skus.length).toBeGreaterThan(0)
     expect(skus.length, `At most ${MAX_SKUS} SKUs per run`).toBeLessThanOrEqual(MAX_SKUS)
 
@@ -120,8 +126,12 @@ describe.skipIf(!key)('live Brave product identification', () => {
   })
 })
 
-/** First N distinct non-empty item numbers in an Export V1 file (read-only), each with its first receipt description. */
-function firstDistinctSkus(path: string, n: number): Sku[] {
+/**
+ * Distinct non-empty item numbers in an Export V1 file (read-only), in file
+ * order, each with its first receipt description: skips the first `offset`
+ * and returns up to `n`. The ordering is stable, so batches never overlap.
+ */
+function distinctSkus(path: string, offset: number, n: number): Sku[] {
   expect(existsSync(path), `Export file not found: ${path}`).toBe(true)
   const parsed = importExportText(readFileSync(path, 'utf8'))
   if (!parsed.ok) throw new Error(`Not a valid Export V1 file: ${parsed.error.message}`)
@@ -132,10 +142,12 @@ function firstDistinctSkus(path: string, n: number): Sku[] {
     const description = item.description.trim()
     if (!itemNumber || !description || seen.has(itemNumber)) continue
     seen.add(itemNumber)
+    if (seen.size <= offset) continue // belongs to an earlier batch
     // Only these two fields leave this function: no price, date, quantity, receipt or warehouse data.
     out.push({ itemNumber, description })
     if (out.length === n) break
   }
+  expect(out.length, `No SKUs left after LIVE_OFFSET=${offset} (the file has ${seen.size} distinct item numbers)`).toBeGreaterThan(0)
   return out
 }
 
