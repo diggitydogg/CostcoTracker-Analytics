@@ -33,6 +33,20 @@ export type OverridesState = {
   error: string | null
 }
 
+/** The owner's own fields for a confirmed product identity. */
+export type IdentityFields = { canonicalName: string; brand: string | null; productType: string | null }
+
+/**
+ * Owner-confirmed catalog identities (cloud mode). Each call saves to the
+ * owner's own catalog and updates the dashboard; failures reject with a
+ * plain-language Error message.
+ */
+export type CatalogEditor = {
+  confirm: (itemNumber: string, receiptDescription: string, fields: IdentityFields) => Promise<void>
+  update: (itemNumber: string, fields: IdentityFields) => Promise<void>
+  remove: (itemNumber: string) => Promise<void>
+}
+
 export type DashboardContextValue = {
   s: AnalyticsSnapshot
   lookups: Lookups
@@ -42,6 +56,8 @@ export type DashboardContextValue = {
   today: string
   /** Optional AI category suggestions (cloud mode only); null when unavailable. */
   ai: SuggestionSession | null
+  /** Owner-confirmed identities (cloud mode only); null when unavailable. */
+  catalog: CatalogEditor | null
 }
 
 export const DashboardContext = createContext<DashboardContextValue | null>(null)

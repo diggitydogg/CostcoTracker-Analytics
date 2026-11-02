@@ -7,6 +7,7 @@ import { aiCandidates } from '../derive'
 import { useDashboard } from '../context'
 import { count, share } from '../format'
 import { Badge, Panel, Segmented, TableWrap, th } from '../ui'
+import { IdentityForm } from '../details/IdentityForm'
 
 
 const btn = 'rounded-md px-2.5 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40'
@@ -18,9 +19,12 @@ const btn = 'rounded-md px-2.5 py-1 text-xs font-medium disabled:cursor-not-allo
  * uncategorized" writes nothing.
  */
 export function AiSuggestionsPanel() {
-  const { s, ai, overrides } = useDashboard()
+  const { s, ai, overrides, catalog } = useDashboard()
   const [view, setView] = useState<'all' | 'uncertain'>('all')
   const [editing, setEditing] = useState<string | null>(null)
+  // Owner-confirmed identities: the row whose form is open, and the items confirmed in this session.
+  const [confirming, setConfirming] = useState<string | null>(null)
+  const [confirmed, setConfirmed] = useState<string[]>([])
   const candidates = useMemo(() => aiCandidates(s.items.items), [s])
   const requestItems = useMemo(() => buildSuggestionItems(candidates), [candidates])
   // Items whose product identity is already cached skip the lookup step.
@@ -38,6 +42,19 @@ export function AiSuggestionsPanel() {
   const decided = [...ai.decisions.values()]
   const tally = (d: string) => decided.filter((x) => x === d).length
   const failedItems = requestItems.filter((i) => ai.failed.has(i.itemNumber))
+  const receiptText = new Map(requestItems.map((i) => [i.itemNumber, i.descriptions[0]!]))
+  const confirmedNotes = confirmed.flatMap((n) => {
+    const it = s.items.byItemNumber.get(n)
+    if (!it?.identity || it.identity.basis !== 'owner-confirmed') return []
+    const c = it.category
+    const now =
+      c.source === 'rule'
+        ? ` Now ${categoryLabel(c.categoryId)}${c.subcategoryId ? ` › ${subcategoryLabel(c.categoryId, c.subcategoryId)}` : ''} by the description rules.`
+        : c.source === 'override'
+          ? ' Your own category choice is unchanged.'
+          : ' Still Uncategorized: review its AI suggestion or choose a category.'
+    return [{ itemNumber: n, text: `Saved “${it.identity.canonicalName}” (#${n}) to your catalog as Owner confirmed.${now}` }]
+  })
 
   const accept = (sg: CategorySuggestion) => {
     if (sg.categoryId === null || !isValidAssignment(sg.categoryId, sg.subcategoryId)) return
@@ -88,6 +105,13 @@ export function AiSuggestionsPanel() {
           {ai.identification.provisional > 0 && `, ${count(ai.identification.provisional)} possible ${ai.identification.provisional === 1 ? 'match' : 'matches'} from a single unconfirmed source (not used)`}
           {ai.identification.notFound > 0 && `, ${count(ai.identification.notFound)} not found`}.
         </p>
+      )}
+      {confirmedNotes.length > 0 && (
+        <ul role="status" className="mt-2 space-y-0.5 text-sm text-emerald-900" data-testid="confirmed-identities">
+          {confirmedNotes.map((n) => (
+            <li key={n.itemNumber}>{n.text}</li>
+          ))}
+        </ul>
       )}
       {ai.notes.length > 0 && (
         <p role="status" className="mt-1 text-xs text-slate-500">
@@ -165,11 +189,36 @@ export function AiSuggestionsPanel() {
                               In your catalog as {item.identity.canonicalName} ({resolutionBasisShortLabel(item.identity.basis)})
                             </span>
                           ) : (
-                            ai.possibleMatches.get(sg.itemNumber) && (
-                              <span className="block text-xs text-slate-600">
-                                Possible match (one unconfirmed source, not saved or used): {ai.possibleMatches.get(sg.itemNumber)}
-                              </span>
-                            )
+                            <>
+                              {ai.possibleMatches.get(sg.itemNumber) && (
+                                <span className="block text-xs text-slate-600">
+                                  Possible match (one unconfirmed source, not saved or used): {ai.possibleMatches.get(sg.itemNumber)}
+                                </span>
+                              )}
+                              {catalog && receiptText.has(sg.itemNumber) && confirming !== sg.itemNumber && (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirming(sg.itemNumber)}
+                                  aria-label={`Confirm identity for ${name}`}
+                                  className={`${btn} mt-1 border border-sky-300 bg-white text-sky-900 hover:bg-sky-50`}
+                                >
+                                  Confirm identity
+                                </button>
+                              )}
+                              {catalog && confirming === sg.itemNumber && (
+                                <IdentityForm
+                                  itemName={name}
+                                  initial={{ canonicalName: ai.possibleMatches.get(sg.itemNumber) ?? '' }}
+                                  submitLabel="Save to my catalog"
+                                  onCancel={() => setConfirming(null)}
+                                  onSubmit={async (fields) => {
+                                    await catalog.confirm(sg.itemNumber, receiptText.get(sg.itemNumber)!, fields)
+                                    setConfirming(null)
+                                    setConfirmed((c) => [...c.filter((x) => x !== sg.itemNumber), sg.itemNumber])
+                                  }}
+                                />
+                              )}
+                            </>
                           )}
                         </td>
                         <td className="px-2 py-2">

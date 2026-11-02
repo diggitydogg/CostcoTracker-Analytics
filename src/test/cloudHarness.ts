@@ -39,8 +39,8 @@ export type CloudHarness = {
   db: NodeSqlite
   api: CloudApi
   fetch: FetchLike
-  /** Every request the UI made, in order. */
-  requests: { method: string; path: string }[]
+  /** Every request the UI made, in order (with the JSON body text, if any). */
+  requests: { method: string; path: string; body?: string }[]
   /** Fails the next `times` matching requests with a network error. */
   failNetwork(match: (method: string, path: string) => boolean, times?: number): void
   /** Answers the next `times` matching requests with this HTTP status (non-JSON body). */
@@ -69,17 +69,18 @@ export async function createCloudHarness(options: { configured?: boolean; ai?: A
     },
     aiLimiter: createRateLimiter(),
     identifyLimiter: createRateLimiter(),
+    catalogLimiter: createRateLimiter(),
     // UI tests never reach a real search API.
     search: options.search ?? null,
   })
   let cookie: string | null = null
   const faults: Fault[] = []
-  const requests: { method: string; path: string }[] = []
+  const requests: { method: string; path: string; body?: string }[] = []
 
   const fetchLike: FetchLike = async (input, init = {}) => {
     const method = (init.method ?? 'GET').toUpperCase()
     const path = input
-    requests.push({ method, path })
+    requests.push({ method, path, ...(typeof init.body === 'string' ? { body: init.body } : {}) })
     const fault = faults.find((f) => f.times > 0 && f.match(method, path))
     if (fault) {
       fault.times -= 1

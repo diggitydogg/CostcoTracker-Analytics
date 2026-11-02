@@ -280,3 +280,132 @@ describe('cloud product identification (fake web search, mocked Workers AI)', ()
     expect(queries).toHaveLength(1)
   })
 })
+
+describe('owner-confirmed product identities (fake web search, mocked Workers AI)', () => {
+  const ITEM = '9000006'
+  const BLOG_URL = 'https://blog.example/BLOGURLMARKER'
+
+  async function start() {
+    const queries: string[] = []
+    const search = {
+      name: 'fake',
+      search: vi.fn(async (q: string) => {
+        queries.push(q)
+        // One ordinary site only → provisional.
+        return q.includes(ITEM) ? [{ title: `Synthetic Yellow Nectarines 4 lb - Item ${ITEM}`, url: BLOG_URL, snippet: 'SNIPPETMARKER $7.99', imageUrl: null }] : []
+      }),
+    }
+    const ai = { run: vi.fn(async () => ({ response: { suggestions: [] } })) }
+    const h = await createCloudHarness({ search, ai })
+    const device = await enrollTestDevice(h)
+    await h.device.sync(device.deviceToken, fixtureData((d) => (d.items.find((i) => i.itemNumber === ITEM)!.description = 'SYN NECT')))
+    const user = userEvent.setup()
+    const view = render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    await screen.findByTestId('dashboard')
+    return { h, user, queries, view }
+  }
+  const section = (user: ReturnType<typeof userEvent.setup>, name: string) =>
+    user.click(within(screen.getByRole('navigation', { name: 'Dashboard sections' })).getByRole('button', { name }))
+  const openItem = async (user: ReturnType<typeof userEvent.setup>) => {
+    await section(user, 'Items')
+    await user.click(screen.getAllByRole('button', { name: /SYN NECT/ })[0]!)
+    return screen.getByRole('dialog')
+  }
+  const dbRow = (h: Awaited<ReturnType<typeof createCloudHarness>>) => h.db.raw.prepare('SELECT * FROM product_identities WHERE item_number = ?').get(ITEM) as Record<string, unknown> | undefined
+
+  it('provisional → Confirm identity → owner-confirmed catalog record, categorized by the rules; survives a reload', async () => {
+    const { h, user, queries, view } = await start()
+    await section(user, 'Categories')
+    await user.click(screen.getByRole('button', { name: 'Suggest categories with AI' }))
+    const row = await screen.findByTestId(`suggestion-${ITEM}`)
+    expect(row).toHaveTextContent('Possible match (one unconfirmed source, not saved or used): Synthetic Yellow Nectarines 4 lb - Item 9000006')
+    // Nothing has been saved for it yet.
+    expect(dbRow(h)).toMatchObject({ status: 'unresolved', last_outcome: 'provisional', canonical_name: null })
+
+    await user.click(within(row).getByRole('button', { name: /Confirm identity for/ }))
+    const form = within(row).getByRole('form', { name: /Product identity for/ })
+    // Prefilled from the possible match, but only a starting point.
+    const name = within(form).getByLabelText('Product name (required)')
+    expect(name).toHaveValue('Synthetic Yellow Nectarines 4 lb - Item 9000006')
+    await user.clear(name)
+    await user.type(name, 'Synthetic Yellow Nectarines')
+    await user.type(within(form).getByLabelText('Brand (optional)'), 'Synthetic')
+    await user.click(within(form).getByRole('button', { name: 'Save to my catalog' }))
+
+    // Applied immediately: the rules now categorize it from the confirmed name, so it leaves the review list.
+    expect(await screen.findByTestId('confirmed-identities')).toHaveTextContent(
+      'Saved “Synthetic Yellow Nectarines” (#9000006) to your catalog as Owner confirmed. Now Grocery › Produce by the description rules.',
+    )
+    expect(screen.queryByTestId(`suggestion-${ITEM}`)).not.toBeInTheDocument()
+
+    // Exactly the owner's fields were sent; no search content anywhere in D1.
+    const sent = h.requests.filter((r) => r.path === '/api/products/confirm')
+    expect(sent.map((r) => JSON.parse(r.body!))).toEqual([
+      { itemNumber: ITEM, receiptDescription: 'SYN NECT', canonicalName: 'Synthetic Yellow Nectarines', brand: 'Synthetic', productType: null },
+    ])
+    expect(dbRow(h)).toMatchObject({ status: 'resolved', resolution_basis: 'owner-confirmed', confidence: 1, method: 'owner', canonical_name: 'Synthetic Yellow Nectarines' })
+    const stored = JSON.stringify(h.db.raw.prepare('SELECT * FROM product_identities').all())
+    expect(stored).not.toMatch(/BLOGURLMARKER|SNIPPETMARKER|https?:\/\/|7\.99|Item 9000006/)
+
+    // A fresh page load keeps it: loaded from the catalog, shown as Owner confirmed, never searched again.
+    view.unmount()
+    const before = queries.length
+    const user2 = userEvent.setup()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    await screen.findByTestId('dashboard')
+    const dialog = await openItem(user2)
+    expect(within(dialog).getByTestId('product-identity')).toHaveTextContent('In your product catalog as Synthetic Yellow Nectarines · Synthetic · Owner confirmed on')
+    expect(within(dialog).getByTestId('product-identity')).not.toHaveTextContent('confidence')
+    expect(within(dialog).getByTestId('category-basis')).toHaveTextContent('in the identified product name')
+    expect(queries).toHaveLength(before)
+  })
+
+  it('edits and removes an owner-confirmed identity from the item drawer', async () => {
+    const { h, user } = await start()
+    await h.api.confirmIdentity({ itemNumber: ITEM, receiptDescription: 'SYN NECT', canonicalName: 'Synthetic Yellow Nectarines', brand: null, productType: null })
+    await user.click(within(screen.getByTestId('dashboard')).getByRole('button', { name: 'Reload dashboard' }))
+    let dialog = await openItem(user)
+    await within(dialog).findByText('Owner confirmed')
+
+    // Edit.
+    await user.click(within(dialog).getByRole('button', { name: 'Edit identity' }))
+    const name = within(dialog).getByLabelText('Product name (required)')
+    expect(name).toHaveValue('Synthetic Yellow Nectarines')
+    await user.clear(name)
+    await user.type(name, 'Synthetic White Nectarines')
+    await user.type(within(dialog).getByLabelText('Product type (optional)'), 'stone fruit')
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    expect(await within(dialog).findByTestId('product-identity')).toHaveTextContent('Synthetic White Nectarines · stone fruit · Owner confirmed')
+    expect(dbRow(h)).toMatchObject({ canonical_name: 'Synthetic White Nectarines', product_type: 'stone fruit', resolution_basis: 'owner-confirmed' })
+
+    // Remove (with a confirmation step): the record goes, the item is Uncategorized again, purchases are untouched.
+    const spendBefore = within(dialog).getByText('Total spend').parentElement!.textContent
+    await user.click(within(dialog).getByRole('button', { name: 'Remove identity' }))
+    await user.click(within(within(dialog).getByRole('group', { name: 'Remove identity' })).getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(within(dialog).queryByTestId('product-identity')).not.toBeInTheDocument())
+    expect(dbRow(h)).toBeUndefined()
+    expect(h.db.raw.prepare('SELECT COUNT(*) AS n FROM items').get()).toMatchObject({ n: fixtureData().items.length })
+    expect(within(dialog).getByText('Total spend').parentElement!.textContent).toBe(spendBefore)
+    dialog = screen.getByRole('dialog')
+    // The rules no longer see a product name: back to the receipt text only (Uncategorized here).
+    expect(within(dialog).queryByText(/identified product name/)).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('region', { name: 'Category' })).toHaveTextContent('Uncategorized')
+  })
+
+  it('does not offer edit or remove for identities resolved automatically', async () => {
+    const h = await createCloudHarness({
+      search: { name: 'fake', search: vi.fn(async (q: string) => (q.includes(ITEM) ? [{ title: 'Synthetic Thing | Costco', url: 'https://www.costco.com/x.product.1.html', snippet: `Item ${ITEM}`, imageUrl: null }] : [])) },
+    })
+    await h.signIn()
+    const device = await enrollTestDevice(h)
+    await h.device.sync(device.deviceToken, fixtureData((d) => (d.items.find((i) => i.itemNumber === ITEM)!.description = 'SYN NECT')))
+    await h.api.identifyProducts([{ itemNumber: ITEM, descriptions: ['SYN NECT'] }])
+    const user = userEvent.setup()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    await screen.findByTestId('dashboard')
+    const dialog = await openItem(user)
+    expect(within(dialog).getByTestId('product-identity')).toHaveTextContent("resolved from Costco's own page")
+    expect(within(dialog).queryByRole('button', { name: 'Edit identity' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Remove identity' })).not.toBeInTheDocument()
+  })
+})

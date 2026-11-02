@@ -33,6 +33,8 @@ export type CloudDatasetValue = CloudDatasetState & {
   reload: () => void
   /** Adds identities found during this session (no refetch needed). */
   addIdentities: (identities: readonly ProductIdentity[]) => void
+  /** Drops an identity removed this session (no refetch needed). */
+  removeIdentity: (itemNumber: string) => void
   markStale: () => void
   noteChangeSeq: (changeSeq: number) => void
 }

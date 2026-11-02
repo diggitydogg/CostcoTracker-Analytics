@@ -1,13 +1,14 @@
-import { useMemo } from 'react'
-import { resolutionBasisLabel } from '../../../analytics/products/identityProtocol'
+import { useMemo, useState } from 'react'
+import { isOwnerConfirmed, resolutionBasisLabel, type ProductIdentity } from '../../../analytics/products/identityProtocol'
 import { dayNumber } from '../../../analytics/dates'
 import { LineChart } from '../charts/LineChart'
 import { SERIES } from '../charts/palette'
 import { useDashboard } from '../context'
 import { COHORT_LABEL } from '../derive'
 import { change, count, date, days, daysBetween, money, moneyAxis, monthShort, share } from '../format'
-import { DrillLink, Facts, Panel, StatCard, TableWrap, td, tdNum, th, thNum } from '../ui'
+import { Badge, DrillLink, Facts, Panel, StatCard, TableWrap, td, tdNum, th, thNum } from '../ui'
 import { CategoryEditor } from './CategoryEditor'
+import { IdentityForm } from './IdentityForm'
 import { warehouseText } from './text'
 
 export function ItemDetail({ itemNumber }: { itemNumber: string }) {
@@ -32,16 +33,7 @@ export function ItemDetail({ itemNumber }: { itemNumber: string }) {
         {item.descriptions.length > 1 && (
           <p className="text-xs text-slate-500">Also recorded as: {item.descriptions.slice(1).join(' · ')}</p>
         )}
-        {item.identity && (
-          <p className="text-xs text-slate-600" data-testid="product-identity">
-            In your product catalog as <span className="font-medium text-slate-900">{item.identity.canonicalName}</span>
-            {item.identity.brand && ` · ${item.identity.brand}`}
-            {item.identity.productType && ` · ${item.identity.productType}`} · {share(item.identity.confidence, 0)} confidence · resolved{' '}
-            {`from ${resolutionBasisLabel(item.identity.basis)}`} on{' '}
-            {date(item.identity.resolvedAt)}
-            {item.identity.method === 'web-search+ai' ? ' (name normalized by AI)' : ''}
-          </p>
-        )}
+        {item.identity && <ProductIdentityLine key={`${item.identity.canonicalName}|${item.identity.resolvedAt}`} itemName={item.displayDescription} identity={item.identity} />}
       </div>
 
       <dl className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-4">
@@ -205,5 +197,84 @@ export function ItemDetail({ itemNumber }: { itemNumber: string }) {
         </Panel>
       </div>
     </>
+  )
+}
+
+const smallBtn = 'rounded-md px-2.5 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40'
+
+/** Our catalog record for the item. Owner-confirmed records can be edited or removed here (cloud mode); automatic ones cannot. */
+function ProductIdentityLine({ itemName, identity }: { itemName: string; identity: ProductIdentity }) {
+  const { catalog } = useDashboard()
+  const [mode, setMode] = useState<'view' | 'edit' | 'remove'>('view')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const owner = isOwnerConfirmed(identity)
+  const editable = owner && catalog !== null
+
+  const remove = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await catalog!.remove(identity.itemNumber)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not remove. Try again.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div data-testid="product-identity-block">
+      <p className="text-xs text-slate-600" data-testid="product-identity">
+        In your product catalog as <span className="font-medium text-slate-900">{identity.canonicalName}</span>
+        {identity.brand && ` · ${identity.brand}`}
+        {identity.productType && ` · ${identity.productType}`} ·{' '}
+        {owner ? (
+          <>
+            <Badge tone="sky">Owner confirmed</Badge> on {date(identity.resolvedAt)}
+          </>
+        ) : (
+          <>
+            {share(identity.confidence, 0)} confidence · resolved {`from ${resolutionBasisLabel(identity.basis)}`} on {date(identity.resolvedAt)}
+            {identity.method === 'web-search+ai' ? ' (name normalized by AI)' : ''}
+          </>
+        )}
+      </p>
+      {editable && mode === 'view' && (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          <button type="button" onClick={() => setMode('edit')} className={`${smallBtn} border border-slate-300 bg-white hover:bg-slate-100`}>
+            Edit identity
+          </button>
+          <button type="button" onClick={() => setMode('remove')} className={`${smallBtn} border border-red-300 bg-white text-red-800 hover:bg-red-50`}>
+            Remove identity
+          </button>
+        </div>
+      )}
+      {editable && mode === 'edit' && (
+        <IdentityForm
+          itemName={itemName}
+          initial={identity}
+          submitLabel="Save changes"
+          onCancel={() => setMode('view')}
+          onSubmit={async (fields) => {
+            await catalog!.update(identity.itemNumber, fields)
+            setMode('view')
+          }}
+        />
+      )}
+      {editable && mode === 'remove' && (
+        <div role="group" aria-label="Remove identity" className="mt-1 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-950">
+          <p>Remove this product identity from your catalog? Receipts, purchases and category choices are not changed. The item may be looked up again later.</p>
+          {error && <p role="alert">{error}</p>}
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <button type="button" disabled={busy} onClick={() => void remove()} className={`${smallBtn} bg-red-800 text-white hover:bg-red-700`}>
+              {busy ? 'Removing…' : 'Remove'}
+            </button>
+            <button type="button" disabled={busy} onClick={() => setMode('view')} className={`${smallBtn} border border-slate-300 bg-white`}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

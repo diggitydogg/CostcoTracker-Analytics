@@ -584,7 +584,7 @@ describe('deployment order and forward compatibility', () => {
     expect(queries).toEqual([])
   })
 
-  it("accepts the reserved 'owner-confirmed' basis in D1 but does not serve it yet", async () => {
+  it("serves an 'owner-confirmed' row like any resolved identity and never searches it", async () => {
     const h = createHarness({ search: fakeSearch({}).search })
     const at = h.clock.now.toISOString()
     h.db.raw
@@ -595,9 +595,9 @@ describe('deployment order and forward compatibility', () => {
       .run(at, at)
     const cookie = await h.login()
     const list = await h.call('GET', '/api/products/identities', { cookie })
-    expect(list.body.identities).toEqual([])
-    // Still settled: it is never searched again.
+    expect(list.body.identities).toEqual([expect.objectContaining({ itemNumber: '9100009', basis: 'owner-confirmed', confidence: 1 })])
+    // Settled: it is never searched again.
     const res = await h.call('POST', '/api/products/identify', { cookie, body: { items: [{ itemNumber: '9100009', descriptions: ['SYNTHETIC'] }] } })
-    expect(res.status).toBe(200)
+    expect(res.body.results[0]).toMatchObject({ status: 'resolved', basis: 'owner-confirmed', cached: true })
   })
 })

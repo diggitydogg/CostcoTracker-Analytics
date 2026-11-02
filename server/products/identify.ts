@@ -42,7 +42,7 @@ import { cleanProductTitle, isStrong, lookupCandidate, type Candidate, type WebS
 /** An unresolved item number (weak evidence or nothing found) is not searched again for this long. */
 export const UNRESOLVED_RETRY_MS = 30 * 24 * 60 * 60 * 1000
 
-type Row = {
+export type Row = {
   item_number: string
   status: 'resolved' | 'unresolved'
   receipt_description: string
@@ -58,10 +58,10 @@ type Row = {
   retry_after: string | null
 }
 
-const COLUMNS =
+export const COLUMNS =
   'item_number, status, receipt_description, canonical_name, brand, product_type, confidence, resolution_basis, last_outcome, method, resolved_at, last_attempt_at, retry_after'
 
-function rowToIdentity(r: Row): ProductIdentity | null {
+export function rowToIdentity(r: Row): ProductIdentity | null {
   // Only bases this version understands (e.g. the reserved 'owner-confirmed' is not served yet).
   if (r.status !== 'resolved' || !r.canonical_name || !r.resolution_basis || !RESOLUTION_BASES.includes(r.resolution_basis) || !r.resolved_at) return null
   return {
