@@ -64,6 +64,17 @@ describe('cloud dashboard', () => {
     expect(await screen.findByRole('heading', { name: 'Cloud status', level: 2 })).toBeInTheDocument()
   })
 
+  it('states the privacy boundary accurately in the footer (no absolute "no third parties" claim)', async () => {
+    const h = await createCloudHarness()
+    await h.signIn()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    const footer = (await screen.findByRole('contentinfo')).textContent ?? ''
+    expect(footer).toContain('Your purchase data stays in your own cloud.')
+    expect(footer).toContain('sends only the Costco item number and abbreviated product description to the configured search provider')
+    expect(footer).toContain('No trackers.')
+    expect(footer).not.toMatch(/no third parties/i)
+  })
+
   it('shows an error if the cloud data cannot be loaded', async () => {
     const h = await createCloudHarness()
     await h.signIn()

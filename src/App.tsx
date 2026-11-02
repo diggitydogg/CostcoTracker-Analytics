@@ -59,7 +59,7 @@ export function App({
             />
           </main>
           <footer className="border-t border-slate-200 px-4 py-4 text-center text-xs text-slate-500">
-            Your data goes only to your own cloud. No trackers, no third parties.
+            Your purchase data stays in your own cloud. Optional product identification sends only the Costco item number and abbreviated product description to the configured search provider. No trackers.
           </footer>
         </>
       ) : (
