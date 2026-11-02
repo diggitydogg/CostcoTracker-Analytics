@@ -36,6 +36,7 @@ export function createHarness(
     aiLimiter: options.aiLimiter ?? createRateLimiter(),
     identifyLimiter: createRateLimiter(),
     catalogLimiter: options.catalogLimiter ?? createRateLimiter(),
+    photoLimiters: { evidence: createRateLimiter(), search: createRateLimiter() },
     // Never reach a real search API from tests.
     search: options.search ?? null,
   })

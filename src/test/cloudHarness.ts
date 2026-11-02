@@ -70,6 +70,7 @@ export async function createCloudHarness(options: { configured?: boolean; ai?: A
     aiLimiter: createRateLimiter(),
     identifyLimiter: createRateLimiter(),
     catalogLimiter: createRateLimiter(),
+    photoLimiters: { evidence: createRateLimiter(), search: createRateLimiter() },
     // UI tests never reach a real search API.
     search: options.search ?? null,
   })

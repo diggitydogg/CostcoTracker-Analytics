@@ -6,6 +6,7 @@
  *   messages are written to never echo purchase data; the client adds none.
  */
 import type { ConfirmIdentityRequest, UpdateIdentityRequest } from '../analytics/products/identityProtocol'
+import type { PhotoSearchRequest } from '../analytics/products/photoMatch'
 import type { SuggestRequestItem } from '../analytics/categories/suggestProtocol'
 import type { Item, PriceAdjustment, Receipt, Return } from '../domain/export/v1'
 import type { SyncBatch } from '../domain/sync/protocol'
@@ -190,6 +191,10 @@ export function createCloudApi(fetchImpl: FetchLike = (input, init) => fetch(inp
     /** Owner-confirmed identity: only our own fields (name, brand, type) plus the receipt text; strict on the server. */
     confirmIdentity: (body: ConfirmIdentityRequest) => request<unknown>('POST', '/api/products/confirm', body),
     updateIdentity: (itemNumber: string, body: UpdateIdentityRequest) => request<unknown>('PATCH', `/api/products/identity/${encodeURIComponent(itemNumber)}`, body),
+    /** Photo matching, AI step: sends ONLY the re-encoded photo (no metadata, no purchase data). */
+    photoEvidence: (image: string) => request<unknown>('POST', '/api/products/photo/evidence', { image }),
+    /** Photo matching, search step: sends ONLY brand, product name and variant read from the photo. */
+    photoSearch: (body: PhotoSearchRequest) => request<unknown>('POST', '/api/products/photo/search', body),
     removeIdentity: (itemNumber: string) => request<unknown>('DELETE', `/api/products/identity/${encodeURIComponent(itemNumber)}`),
     exportPage: <C extends ExportCollectionName>(collection: C, after: string | null, limit = 1000) => {
       const qs = new URLSearchParams({ limit: String(limit) })

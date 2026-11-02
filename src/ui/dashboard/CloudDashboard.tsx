@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { suggestResponseSchema, type SuggestRequestItem, type SuggestResponse } from '../../analytics/categories/suggestProtocol'
 import { identifyResponseSchema, identityResponseSchema, type IdentifyResponse } from '../../analytics/products/identityProtocol'
+import { photoEvidenceResponseSchema, photoSearchResponseSchema } from '../../analytics/products/photoMatch'
 import { useCloud } from '../../cloud/CloudContext'
 import { useCloudDataset } from '../../cloud/CloudDatasetContext'
 import type { OverridesStore } from '../../persistence/overridesStore'
-import type { CatalogEditor } from './context'
+import type { CatalogEditor, PhotoServices } from './context'
 import { Button, Notice } from '../cloud/primitives'
 import { Dashboard } from './Dashboard'
 
@@ -75,6 +76,28 @@ export function CloudDashboard({ overridesStore, today }: { overridesStore?: Ove
       },
     }
   }, [api, handle, addIdentities, removeIdentity])
+  // Photo matching's cloud steps; the on-device steps (OCR, barcodes, local match) need no server.
+  const photo = useMemo<PhotoServices>(() => {
+    const call = async (send: () => Promise<unknown>): Promise<unknown> => {
+      try {
+        return await send()
+      } catch (e) {
+        throw new Error(handle(e), { cause: e })
+      }
+    }
+    return {
+      evidence: async (image) => {
+        const parsed = photoEvidenceResponseSchema.safeParse(await call(() => api.photoEvidence(image)))
+        if (!parsed.success) throw new Error('The photo analysis response was not in the expected format.')
+        return parsed.data.evidence
+      },
+      search: async (req) => {
+        const parsed = photoSearchResponseSchema.safeParse(await call(() => api.photoSearch(req)))
+        if (!parsed.success) throw new Error('The product search response was not in the expected format.')
+        return parsed.data
+      },
+    }
+  }, [api, handle])
   useEffect(() => ensureLoaded(), [ensureLoaded])
 
   const tombstoned = dataset?.meta.counts.tombstoned ?? 0
@@ -111,6 +134,7 @@ export function CloudDashboard({ overridesStore, today }: { overridesStore?: Ove
           productIdentities={identities}
           onIdentities={addIdentities}
           catalog={catalog}
+          photo={photo}
           {...(overridesStore ? { overridesStore } : {})}
           {...(today ? { today } : {})}
           toolbar={

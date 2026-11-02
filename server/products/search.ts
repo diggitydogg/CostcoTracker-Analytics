@@ -235,6 +235,22 @@ export function pickCandidate(itemNumber: string, results: readonly SearchResult
   return { result: first!, confidence: EVIDENCE_CONFIDENCE['single-source'], evidence: 'single-source', sources, corroboratingUrl: null }
 }
 
+/**
+ * The Costco item number of a Costco-specialist product page (Warehouse
+ * Runner `/costco/<itemNumber>[-slug]`), or null for any other URL. Used when
+ * the item number is not known yet (photo matching).
+ */
+export function specialistItemNumber(url: string): string | null {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return null
+  }
+  if (u.protocol !== 'https:' || !SPECIALIST_HOSTS.has(u.hostname.toLowerCase())) return null
+  return /^\/costco\/(\d{3,8})(-[^/]*)?\/?$/.exec(u.pathname)?.[1] ?? null
+}
+
 /** "Kirkland Signature Organic Quinoa, 4.5 lbs | Costco" → "Kirkland Signature Organic Quinoa, 4.5 lbs". */
 export function cleanProductTitle(title: string): string {
   let t = title.replace(/\s+/g, ' ').trim()

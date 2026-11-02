@@ -8,11 +8,12 @@ import { COHORT_LABEL } from '../derive'
 import { change, count, date, days, daysBetween, money, moneyAxis, monthShort, share } from '../format'
 import { Badge, DrillLink, Facts, Panel, StatCard, TableWrap, td, tdNum, th, thNum } from '../ui'
 import { buildSuggestionItems } from '../../../analytics/categories/suggestProtocol'
+import { confidenceLabel, type ConfirmedPhotoMatch } from '../../../analytics/products/photoMatch'
 import { CategoryEditor } from './CategoryEditor'
 import { IdentityForm } from './IdentityForm'
 import { warehouseText } from './text'
 
-export function ItemDetail({ itemNumber }: { itemNumber: string }) {
+export function ItemDetail({ itemNumber, match }: { itemNumber: string; match?: ConfirmedPhotoMatch }) {
   const { s, open, lookups, today } = useDashboard()
   const item = s.items.byItemNumber.get(itemNumber)
   const history = s.items.priceHistories.get(itemNumber)
@@ -33,6 +34,11 @@ export function ItemDetail({ itemNumber }: { itemNumber: string }) {
         </p>
         {item.descriptions.length > 1 && (
           <p className="text-xs text-slate-500">Also recorded as: {item.descriptions.slice(1).join(' · ')}</p>
+        )}
+        {match && match.itemNumber === item.itemNumber && (
+          <p className="text-xs text-slate-600" data-testid="photo-match-note">
+            Opened from your photo: you confirmed this match ({confidenceLabel(match.confidence).toLowerCase()}, {share(match.confidence, 0)}).
+          </p>
         )}
         {item.identity ? (
           <ProductIdentityLine key={`${item.identity.canonicalName}|${item.identity.resolvedAt}`} itemName={item.displayDescription} identity={item.identity} />
