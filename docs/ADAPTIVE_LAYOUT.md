@@ -62,7 +62,7 @@ Each token gives a container-query variant (`@regular:grid-cols-2`) and a width 
 
 **Why container queries:** Apple decides from "the actual space available". A container query asks the region itself (a page, a panel, a pane, a sheet, a form) how wide it is. The window, the screen and the orientation are never consulted. `<main>`, every `Panel`, the detail body and the identity form are size containers.
 
-**Tuned on real hardware:** the first version used 64rem. On an iPhone Duo, unfolded in landscape, Safari's content width stayed below that, so the detail remained a sheet despite visible room for two panes. The threshold is now derived from the smallest two-pane layout that stays usable, not from any device. A test checks the derivation.
+**Tuned and validated on real hardware:** the first version used 64rem. On an iPhone Duo, unfolded in landscape, Safari's content width stayed below that, so the detail remained a sheet despite visible room for two panes. The threshold is now derived from the smallest two-pane layout that stays usable, not from any device, and a test checks the derivation. With 52rem, unfolded landscape docks the pane on the device.
 
 The tokens are in `rem`, so **larger text means less effective room**. At 200% text, a 1180px window falls back from split to sheet, and grids drop columns. This is Apple's Dynamic Type guidance: let adjacent views stack when text grows.
 
@@ -180,15 +180,23 @@ With the change from 64rem to 52rem, three rows changed from sheet to pane: 932Ã
 - **Management pages:** no overflow. The longest paragraph is 672px (42rem) at every wide size.
 - **AI review:** Accept is inside the viewport at every size. At 1180 the header and rows align.
 
-## Needs real hardware
+## Validated on real iPhone Duo hardware
 
-These could not be validated without a physical iPhone Duo or Safari on one:
-- **The fold** (Apple's *reserved regions*). The web has no `ReservedRegion` API in Safari. A docked pane is not centered on the fold, and a partially folded inner display may place the fold inside the dashboard or the pane. Apple's guidance is to keep important elements clear of the center; we follow it only through general margins.
-- **Side-placed system bars on the outer display:** Safari's own chrome and the safe-area insets it reports there. The layout pads left and right insets separately, but the actual values are unverified.
-- **Inner display widths in CSS px, and Safari Split View widths.** Unfolded landscape did not reach 64rem on the device; at 52rem it should dock if the dashboard region is at least 832px. Portrait may stay a sheet, which is acceptable. To confirm on the device, run this in Safari Web Inspector: `document.querySelector('[data-testid=dashboard-layout]').getBoundingClientRect().width`.
-- **Real Dynamic Type in Safari:** the app scales with the root text size and browser zoom. It does not opt into `font: -apple-system-body`, because that would change the current iPhone text size.
-- **Touch feel:** tap highlight, input zoom, and keyboard behavior with `interactive-widget`.
-- **Text size controls:** touch-target sizes of the small `text-xs` controls, kept to preserve the current control density, and VoiceOver order in split layout.
+The owner tested the final build on a physical iPhone Duo, unfolded in landscape, in Safari:
+- **Docking:** the detail docks as a split-view pane beside the list, with the 52rem threshold.
+- **Focus:** selecting rows and closing the pane don't move the list.
+- **Reflow:** opening, selecting several rows and closing keep the list visually still.
+
+Three issues found during that testing were fixed before merge: the 64rem threshold, the pane's focus handling, and the open/close reflow. Each is described above.
+
+### Not separately validated on hardware
+
+These were not specifically covered by the hardware test and remain known limitations of the web platform:
+- **The fold** (Apple's *reserved regions*). The web has no `ReservedRegion` API in Safari. A docked pane is not centered on the fold, and a partially folded inner display may place the fold inside the dashboard or the pane. We follow Apple's guidance only through general margins.
+- **Outer display:** side-placed system bars, Safari's chrome and the safe-area insets it reports. Left and right insets are padded separately.
+- **Portrait inner display and Safari Split View widths:** below 52rem the detail stays a sheet, which is acceptable.
+- **Safari Dynamic Type:** the app scales with root text size and browser zoom. It does not opt into `font: -apple-system-body`.
+- **Touch-target sizes** of small `text-xs` controls (kept to preserve density) and VoiceOver order in split layout.
 
 ## Review findings
 
