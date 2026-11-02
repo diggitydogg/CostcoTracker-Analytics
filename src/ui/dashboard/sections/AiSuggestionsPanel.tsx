@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { CATEGORIES, categoryLabel, isValidAssignment, subcategoryLabel, type CategoryId } from '../../../analytics'
 import { buildSuggestionItems, type CategorySuggestion } from '../../../analytics/categories/suggestProtocol'
+import { resolutionBasisShortLabel } from '../../../analytics/products/identityProtocol'
 import { AI_SUGGESTIONS } from '../aiConfig'
 import { aiCandidates } from '../derive'
 import { useDashboard } from '../context'
@@ -161,7 +162,7 @@ export function AiSuggestionsPanel() {
                           <span className="text-xs text-slate-500">#{sg.itemNumber}</span>
                           {item?.identity ? (
                             <span className="block text-xs text-slate-600">
-                              In your catalog as {item.identity.canonicalName} ({item.identity.basis === 'costco.com' ? 'Costco.com' : item.identity.basis === 'costco-specialist' ? 'Costco-specialist page' : 'two independent sources'})
+                              In your catalog as {item.identity.canonicalName} ({resolutionBasisShortLabel(item.identity.basis)})
                             </span>
                           ) : (
                             ai.possibleMatches.get(sg.itemNumber) && (

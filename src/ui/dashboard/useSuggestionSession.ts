@@ -13,9 +13,9 @@ export type BatchIdentifier = (items: SuggestRequestItem[]) => Promise<IdentifyR
 export type SuggestionDecision = 'accepted' | 'changed' | 'left'
 
 export type IdentificationSummary = {
-  /** Items with a usable product identity (Costco.com or 2+ agreeing sources) found or confirmed this session. */
+  /** Items with a usable product identity (Costco.com, a Costco-specialist page or 2+ agreeing sources) found or confirmed this session. */
   identified: number
-  /** Items with only one non-Costco source: left unresolved (shown as possible matches this session only). */
+  /** Items with only one ordinary source: left unresolved (shown as possible matches this session only). */
   provisional: number
   /** Of those, items the deterministic rules now categorize (no AI needed). */
   categorizedByRules: number

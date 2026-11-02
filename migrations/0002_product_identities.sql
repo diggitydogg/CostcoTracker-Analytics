@@ -1,8 +1,9 @@
 -- Our own local Costco product catalog: one row per item number, holding
 -- OUR resolved product record for that SKU. It is not a copy of any search
 -- provider's results:
--- - web search (Brave) is used only transiently, inside one identify request,
---   to discover the product;
+-- - web search (Brave, including a site: query for Warehouse Runner product
+--   pages) is used only transiently, inside one identify request, to discover
+--   the product;
 -- - no search-result titles, snippets, URLs, thumbnails, rankings or
 --   responses are stored here (there are no columns for them);
 -- - a resolved SKU is never searched again.
@@ -23,8 +24,10 @@ CREATE TABLE product_identities (
   confidence REAL NOT NULL DEFAULT 0 CHECK (confidence >= 0 AND confidence <= 1),
   -- Why we accepted it: Costco's own page named the item number, a Costco-specialist product page
   -- for exactly that item number did, or 2+ independent agreeing sources did.
-  resolution_basis TEXT CHECK (resolution_basis IS NULL OR resolution_basis IN ('costco.com', 'costco-specialist', 'corroborated')),
-  -- Unresolved rows: what the last lookup found ('provisional' = one non-Costco source only).
+  -- 'owner-confirmed' is reserved for the planned owner confirmation of a provisional match, so that
+  -- feature needs no table rebuild (SQLite cannot alter a CHECK); nothing writes it yet.
+  resolution_basis TEXT CHECK (resolution_basis IS NULL OR resolution_basis IN ('costco.com', 'costco-specialist', 'corroborated', 'owner-confirmed')),
+  -- Unresolved rows: what the last lookup found ('provisional' = one ordinary source only).
   last_outcome TEXT CHECK (last_outcome IS NULL OR last_outcome IN ('provisional', 'not_found')),
   -- How the mapping was established: 'web-search' or 'web-search+ai' (AI-normalized name).
   method TEXT NOT NULL,

@@ -3,7 +3,8 @@
  * `POST /api/products/identify` and `GET /api/products/identities`.
  *
  * Division of labour:
- * - web search (Brave) is a TRANSIENT discovery step: it answers "what
+ * - web search (Brave, including a `site:` query for Warehouse Runner's
+ *   Costco product pages) is a TRANSIENT discovery step: it answers "what
  *   product is Costco item #N?" once, inside one request;
  * - the outcome is saved as OUR OWN local catalog record (item number →
  *   canonical name, brand, type, confidence, basis). No search-result content
@@ -20,7 +21,7 @@ import { z } from 'zod'
 import { suggestRequestItemSchema, type SuggestRequestItem } from '../categories/suggestProtocol'
 
 export const IDENTIFY_LIMITS = {
-  /** Items per request (each may cost up to two search queries). */
+  /** Items per request (each may cost up to MAX_QUERIES_PER_ITEM = 3 search queries). */
   maxItemsPerRequest: 10,
   maxRequestBytes: 12 * 1024,
   /** Identities shown to the rules and the AI must be at least this confident. */
@@ -68,7 +69,7 @@ export type ProductIdentity = {
 export type UnresolvedResult = {
   itemNumber: string
   status: 'unresolved'
-  /** 'provisional' = only one non-Costco source (or disagreeing sources); 'not_found' = nothing named the item number. */
+  /** 'provisional' = only one ordinary source (or disagreeing sources); 'not_found' = nothing named the item number. */
   outcome: 'provisional' | 'not_found'
   /**
    * For a fresh provisional lookup only: the candidate product name, shown to
@@ -163,5 +164,17 @@ export function resolutionBasisLabel(basis: ResolutionBasis): string {
       return "a Costco-specialist product page (Warehouse Runner) for this item number"
     case 'corroborated':
       return 'two independent sources that agree on this item number'
+  }
+}
+
+/** A short label for compact rows. */
+export function resolutionBasisShortLabel(basis: ResolutionBasis): string {
+  switch (basis) {
+    case 'costco.com':
+      return 'Costco.com'
+    case 'costco-specialist':
+      return 'Costco-specialist page'
+    case 'corroborated':
+      return 'two independent sources'
   }
 }

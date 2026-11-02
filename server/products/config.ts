@@ -11,7 +11,7 @@
  */
 import { braveSearch, type FetchFn, type WebSearch } from './search'
 
-/** Best-effort per-isolate limit on identify requests (each ≤ 10 items, ≤ 20 queries). */
+/** Best-effort per-isolate limit on identify requests (each ≤ 10 items, ≤ 30 Brave queries). */
 export const IDENTIFY_RATE_LIMIT = { maxRequests: 10, windowMs: 10 * 60 * 1000 } as const
 
 export function searchFromEnv(env: { SEARCH_API_KEY?: string | undefined }, fetchImpl?: FetchFn): WebSearch | null {

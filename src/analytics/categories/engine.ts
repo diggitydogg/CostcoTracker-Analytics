@@ -23,8 +23,8 @@ export type CategoryAssignment = {
   /** The phrase of that rule that matched. */
   matchedPhrase: string | null
   /**
-   * Which text the rule matched: a receipt description, or the product name
-   * found by web search for this item number (product identification).
+   * Which text the rule matched: a receipt description, or our resolved
+   * catalog name/type for this item number (product identification).
    */
   basis: 'receipt' | 'identity' | null
 }
@@ -111,12 +111,42 @@ export function matchRules(
 }
 
 /**
+ * One narrow refinement from our resolved product identity: a grocery item
+ * whose identified name says it is frozen ("Frozen Dark Chocolate
+ * Strawberries") is Frozen, even when the receipt text matched another
+ * grocery subcategory first ("CHOC STRAWBERRIES" → produce) or a more
+ * specific snack phrase matched the name. Only identity texts can trigger it,
+ * so receipt-only categorizations never change.
+ */
+const frozenCache = new WeakMap<readonly CategoryRule[], CategoryRule[]>()
+const frozenRulesOf = (rules: readonly CategoryRule[]) => {
+  let found = frozenCache.get(rules)
+  if (!found) frozenCache.set(rules, (found = rules.filter((r) => r.categoryId === 'grocery' && r.subcategoryId === 'frozen')))
+  return found
+}
+
+function frozenFromIdentity(
+  assignment: CategoryAssignment,
+  identityTexts: readonly string[],
+  rules: readonly CategoryRule[],
+): CategoryAssignment | null {
+  if (assignment.categoryId !== 'grocery' || assignment.subcategoryId === 'frozen' || identityTexts.length === 0) return null
+  const frozenRules = frozenRulesOf(rules)
+  for (const text of identityTexts) {
+    const match = matchRules(text, frozenRules)
+    if (match) return { ...assignment, subcategoryId: 'frozen', ruleId: match.rule.id, matchedPhrase: match.phrase, basis: 'identity' }
+  }
+  return null
+}
+
+/**
  * Categorizes one item. Order of decision:
  * 1. the owner's override;
  * 2. rules on the receipt `descriptions` (most recent first);
- * 3. rules on `identityTexts` — the product name/type a web search found for
- *    this exact item number (only consulted when no receipt text matched, so
- *    existing rule results never change);
+ * 3. rules on `identityTexts`: our resolved catalog name/type for this exact
+ *    item number (consulted when no receipt text matched, so existing rule
+ *    results never change), plus one refinement: a grocery item the identity
+ *    names as frozen is Frozen (see frozenFromIdentity);
  * 4. Uncategorized.
  */
 export function categorize(
@@ -145,7 +175,7 @@ export function categorize(
     for (const text of texts) {
       const match = matchRules(text, rules)
       if (match) {
-        return {
+        const assignment: CategoryAssignment = {
           categoryId: match.rule.categoryId,
           subcategoryId: match.rule.subcategoryId ?? null,
           source: 'rule',
@@ -153,6 +183,7 @@ export function categorize(
           matchedPhrase: match.phrase,
           basis,
         }
+        return frozenFromIdentity(assignment, identityTexts, rules) ?? assignment
       }
     }
   }

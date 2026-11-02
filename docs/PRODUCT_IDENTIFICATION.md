@@ -54,10 +54,11 @@ On every dashboard load, the resolved catalog is fetched once with the dataset (
 | `canonical_name`, `brand`, `product_type` | Our canonical product record (resolved rows only) |
 | `confidence` | Our confidence, from the evidence class only (0.9 Costco.com, 0.85 Costco-specialist, 0.8 corroborated) |
 | `resolution_basis` | Why we accepted it: `costco.com`, `costco-specialist` or `corroborated` (our classification, not search content) |
-| `last_outcome` | Unresolved rows: `provisional` (one non-Costco source) or `not_found` |
+| `last_outcome` | Unresolved rows: `provisional` (one ordinary source) or `not_found` |
 | `method` | `web-search` or `web-search+ai` (AI-normalized name) |
 | `resolved_at`, `last_attempt_at`, `retry_after` | Timestamps |
 
+- `resolution_basis` also accepts `owner-confirmed`, reserved for the planned owner confirmation (below), so that feature needs no table rebuild. Nothing writes it yet, and such rows are not served.
 - **Unresolved rows can't hold product details.** A database CHECK constraint enforces this: `canonical_name`, `brand`, `product_type` and `resolution_basis` must be NULL and `confidence` must be 0. Weak evidence therefore can never become a stored identity.
 - **No column can hold search-result content.** A test checks the column names.
 
@@ -152,7 +153,8 @@ See `CLAUDE.md` for the bounded exception.
 
 **Fallbacks:**
 - Without `SEARCH_API_KEY`, only the local catalog is used. Unknown items are reported as `unavailable`, and the dashboard notes that web search is not set up.
-- Without the migration, the catalog simply isn't used.
+- Without the migration, the catalog reads as empty, so the dashboard and AI suggestions work as before. `POST /api/products/identify` answers **503 `catalog_not_configured`** and searches nothing, because lookups could not be cached. The dashboard shows that as a product-lookup note and still runs the AI step.
+- **Brave rate limit:** a 429 response is retried once after 1.1 s. A second 429 marks that item "search failed" (nothing recorded), and it can be looked up again on a later click.
 
 ## Live validation (local, read-only)
 `npm run validate:search` (`scripts/live/productSearch.live.ts`) runs the production query builder, Brave adapter, evidence classifier and title cleaner against real SKUs. It writes nothing: no D1, no migration, no saved results.

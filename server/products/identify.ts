@@ -7,13 +7,15 @@
  *   1. Local catalog lookup by item number. A resolved item number is answered
  *      from D1 and is never searched again. A recent unresolved attempt is not
  *      retried before its retry_after.
- *   2. Unknown item number → targeted search ("Costco <item#> <desc>", then
- *      "Costco \"<item#>\""). A result counts only if it names the exact item
- *      number; the evidence class decides the outcome (see search.ts).
- *   3. Strong evidence (Costco.com page, or 2+ independent agreeing sites) →
- *      canonical name (optionally AI-normalized), brand and product type are
- *      resolved during this request and saved as our own record.
- *      Weak evidence (one non-Costco source) or nothing → saved only as
+ *   2. Unknown item number → targeted Brave queries (lookupCandidate in
+ *      search.ts: normal, then a Warehouse Runner `site:` query, then the quoted
+ *      item number; ≤ 3, stopping at strong evidence). A result counts only if
+ *      it names the exact item number; the evidence class decides the outcome.
+ *   3. Strong evidence (Costco.com page, a Costco-specialist product page for
+ *      that item number, or 2+ independent agreeing sites) → canonical name
+ *      (optionally AI-normalized), brand and product type are resolved during
+ *      this request and saved as our own record.
+ *      Weak evidence (one ordinary source) or nothing → saved only as
  *      "unresolved" (outcome + retry time, no product details).
  *   4. Search results (titles, snippets, URLs, thumbnails, ranking) live only
  *      in memory for this request and are discarded.
@@ -24,6 +26,7 @@
 import { cleanDescription, type SuggestRequestItem } from '../../src/analytics/categories/suggestProtocol'
 import {
   isUsableIdentity,
+  RESOLUTION_BASES,
   type IdentifyResponse,
   type IdentifyResult,
   type ProductIdentity,
@@ -31,8 +34,9 @@ import {
   type UnresolvedResult,
 } from '../../src/analytics/products/identityProtocol'
 import type { AiBinding } from '../ai/categorySuggest'
+import { ApiError } from '../http'
 import { PRODUCT_NORMALIZATION_MODEL } from '../ai/config'
-import type { SqlDatabase } from '../db'
+import type { SqlDatabase, SqlValue } from '../db'
 import { cleanProductTitle, isStrong, lookupCandidate, type Candidate, type WebSearch } from './search'
 
 /** An unresolved item number (weak evidence or nothing found) is not searched again for this long. */
@@ -58,7 +62,8 @@ const COLUMNS =
   'item_number, status, receipt_description, canonical_name, brand, product_type, confidence, resolution_basis, last_outcome, method, resolved_at, last_attempt_at, retry_after'
 
 function rowToIdentity(r: Row): ProductIdentity | null {
-  if (r.status !== 'resolved' || !r.canonical_name || !r.resolution_basis || !r.resolved_at) return null
+  // Only bases this version understands (e.g. the reserved 'owner-confirmed' is not served yet).
+  if (r.status !== 'resolved' || !r.canonical_name || !r.resolution_basis || !RESOLUTION_BASES.includes(r.resolution_basis) || !r.resolved_at) return null
   return {
     itemNumber: r.item_number,
     status: 'resolved',
@@ -79,9 +84,27 @@ function rowToResult(r: Row): IdentifyResult {
   return { itemNumber: r.item_number, status: 'unresolved', outcome: r.last_outcome ?? 'not_found', candidateName: null, retryAfter: r.retry_after ?? '', cached: true }
 }
 
+/**
+ * True when migration 0002 has not been applied yet. The catalog is optional:
+ * reads then see an empty catalog, so AI suggestions and the dashboard keep
+ * working on a deployment whose D1 has not been migrated.
+ */
+export function isCatalogMissing(error: unknown): boolean {
+  return error instanceof Error && /no such table:?\s*product_identities/i.test(error.message)
+}
+
+async function catalogRows(db: SqlDatabase, sql: string, params: SqlValue[] = []): Promise<Row[]> {
+  try {
+    return await db.all<Row>(sql, params)
+  } catch (error) {
+    if (isCatalogMissing(error)) return []
+    throw error
+  }
+}
+
 /** Our resolved catalog (what the dashboard loads with the dataset). */
 export async function listIdentities(db: SqlDatabase): Promise<ProductIdentity[]> {
-  const rows = await db.all<Row>(`SELECT ${COLUMNS} FROM product_identities WHERE status = 'resolved' ORDER BY item_number LIMIT 20000`)
+  const rows = await catalogRows(db, `SELECT ${COLUMNS} FROM product_identities WHERE status = 'resolved' ORDER BY item_number LIMIT 20000`)
   return rows.map(rowToIdentity).filter((i): i is ProductIdentity => i !== null)
 }
 
@@ -225,7 +248,16 @@ const UPSERT = `INSERT INTO product_identities (${COLUMNS}) VALUES (?, ?, ?, ?, 
 export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestRequestItem[]): Promise<IdentifyResponse> {
   const { db, search, ai, now } = deps
   const numbers = items.map((i) => i.itemNumber)
-  const rows = await db.all<Row>(`SELECT ${COLUMNS} FROM product_identities WHERE item_number IN (${numbers.map(() => '?').join(', ')})`, numbers)
+  let rows: Row[]
+  try {
+    rows = await db.all<Row>(`SELECT ${COLUMNS} FROM product_identities WHERE item_number IN (${numbers.map(() => '?').join(', ')})`, numbers)
+  } catch (error) {
+    // Searching without a catalog would repeat paid lookups on every click: refuse clearly instead.
+    if (isCatalogMissing(error)) {
+      throw new ApiError(503, 'catalog_not_configured', 'The product catalog is not set up on this cloud yet: apply the D1 migrations (0002), then try again.')
+    }
+    throw error
+  }
   const local = new Map(rows.map((r) => [r.item_number, r]))
   const results = new Map<string, IdentifyResponse['results'][number]>()
   const toSearch: SuggestRequestItem[] = []
@@ -295,7 +327,8 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
 /** Resolved, usable identities for the AI suggestion prompt. */
 export async function identitiesFor(db: SqlDatabase, itemNumbers: readonly string[]): Promise<Map<string, ProductIdentity>> {
   if (itemNumbers.length === 0) return new Map()
-  const rows = await db.all<Row>(
+  const rows = await catalogRows(
+    db,
     `SELECT ${COLUMNS} FROM product_identities WHERE status = 'resolved' AND item_number IN (${itemNumbers.map(() => '?').join(', ')})`,
     [...itemNumbers],
   )

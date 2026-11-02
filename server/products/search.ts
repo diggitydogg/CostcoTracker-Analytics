@@ -27,18 +27,32 @@ const strip = (s: unknown): string =>
         .trim()
     : ''
 
+/** On HTTP 429 (per-second rate limit) wait this long, then retry that query once. */
+export const RATE_LIMIT_RETRY_MS = 1100
+
 /**
  * Brave Search API adapter (https://api.search.brave.com, header
  * `X-Subscription-Token`). Requires the secret SEARCH_API_KEY.
+ * A 429 is retried once after RATE_LIMIT_RETRY_MS; any other failure throws.
  */
-export function braveSearch(apiKey: string, fetchImpl: FetchFn = (i, init) => fetch(i, init)): WebSearch {
+export function braveSearch(
+  apiKey: string,
+  fetchImpl: FetchFn = (i, init) => fetch(i, init),
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): WebSearch {
   return {
     name: 'brave',
     async search(query) {
       const qs = new URLSearchParams({ q: query, count: '8', safesearch: 'moderate', text_decorations: 'false' })
-      const res = await fetchImpl(`https://api.search.brave.com/res/v1/web/search?${qs}`, {
-        headers: { accept: 'application/json', 'x-subscription-token': apiKey },
-      })
+      const send = () =>
+        fetchImpl(`https://api.search.brave.com/res/v1/web/search?${qs}`, {
+          headers: { accept: 'application/json', 'x-subscription-token': apiKey },
+        })
+      let res = await send()
+      if (res.status === 429) {
+        await sleep(RATE_LIMIT_RETRY_MS)
+        res = await send()
+      }
       if (!res.ok) throw new Error(`search_http_${res.status}`)
       const body = (await res.json()) as { web?: { results?: unknown[] } }
       return (body.web?.results ?? []).flatMap((r) => {

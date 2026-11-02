@@ -164,6 +164,24 @@ describe('targeted search helpers', () => {
     expect((init!.headers as Record<string, string>)['x-subscription-token']).toBe('KEY')
     expect(init!.body).toBeUndefined()
   })
+
+  it('the Brave adapter retries a 429 once, then fails', async () => {
+    const waits: number[] = []
+    const sleep = async (ms: number) => {
+      waits.push(ms)
+    }
+    const ok = () => Response.json({ web: { results: [{ title: 'X', url: 'https://www.costco.com/x.html', description: '' }] } })
+    const once = vi.fn<FetchFn>().mockResolvedValueOnce(new Response('', { status: 429 })).mockResolvedValueOnce(ok())
+    expect(await braveSearch('KEY', once, sleep).search('q')).toHaveLength(1)
+    expect(once).toHaveBeenCalledTimes(2)
+    expect(waits).toEqual([1100])
+    const always = vi.fn<FetchFn>(async () => new Response('', { status: 429 }))
+    await expect(braveSearch('KEY', always, sleep).search('q')).rejects.toThrow('search_http_429')
+    expect(always).toHaveBeenCalledTimes(2) // never more than one retry
+    const forbidden = vi.fn<FetchFn>(async () => new Response('', { status: 401 }))
+    await expect(braveSearch('KEY', forbidden, sleep).search('q')).rejects.toThrow('search_http_401')
+    expect(forbidden).toHaveBeenCalledTimes(1) // other errors are not retried
+  })
 })
 
 /** A fake search provider keyed by the exact query string (unknown queries return nothing). */
@@ -547,5 +565,39 @@ describe('AI category suggestions use the local catalog', () => {
       // Unresolved (provisional): nothing about it is passed on.
       { itemNumber: '1712345', descriptions: ['ANKERSOLIX'] },
     ])
+  })
+})
+
+describe('deployment order and forward compatibility', () => {
+  it('before migration 0002: suggestions and the dashboard keep working; identify refuses clearly and searches nothing', async () => {
+    const ai: AiBinding = { run: vi.fn(async () => ({ response: { suggestions: [] } })) }
+    const { search, queries } = fakeSearch(MARKED)
+    const h = createHarness({ search, ai })
+    h.db.raw.exec('DROP TABLE product_identities')
+    const cookie = await h.login()
+    const suggest = await h.call('POST', '/api/categories/suggest', { cookie, body: { items: [{ itemNumber: '1627770', descriptions: ['CLASSIC BLUE'] }] } })
+    expect(suggest.status).toBe(200)
+    const list = await h.call('GET', '/api/products/identities', { cookie })
+    expect(list).toMatchObject({ status: 200, body: { identities: [] } })
+    const identify = await h.call('POST', '/api/products/identify', { cookie, body: { items: [{ itemNumber: '1627770', descriptions: ['CLASSIC BLUE'] }] } })
+    expect(identify).toMatchObject({ status: 503, body: { error: { code: 'catalog_not_configured' } } })
+    expect(queries).toEqual([])
+  })
+
+  it("accepts the reserved 'owner-confirmed' basis in D1 but does not serve it yet", async () => {
+    const h = createHarness({ search: fakeSearch({}).search })
+    const at = h.clock.now.toISOString()
+    h.db.raw
+      .prepare(
+        `INSERT INTO product_identities (item_number, status, receipt_description, canonical_name, confidence, resolution_basis, method, resolved_at, last_attempt_at)
+         VALUES ('9100009', 'resolved', 'SYNTHETIC', 'Synthetic Owner Product', 1, 'owner-confirmed', 'owner', ?, ?)`,
+      )
+      .run(at, at)
+    const cookie = await h.login()
+    const list = await h.call('GET', '/api/products/identities', { cookie })
+    expect(list.body.identities).toEqual([])
+    // Still settled: it is never searched again.
+    const res = await h.call('POST', '/api/products/identify', { cookie, body: { items: [{ itemNumber: '9100009', descriptions: ['SYNTHETIC'] }] } })
+    expect(res.status).toBe(200)
   })
 })
