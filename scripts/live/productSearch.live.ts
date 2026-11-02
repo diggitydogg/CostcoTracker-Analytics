@@ -18,13 +18,27 @@
  *   2. Otherwise a manual list in `.live-skus.json` (gitignored) or LIVE_SKUS_FILE:
  *        [{ "itemNumber": "1234567", "description": "KS EXAMPLE", "expect": "optional note" }]
  * - Only the item number and the (sanitized) receipt description are sent, as in production.
+ *
+ * Optional AI normalization (LIVE_AI_NORMALIZE=1): for strong (resolved)
+ * matches only, runs the production normalization step
+ * (normalizeStrongCandidates → toResolvedIdentity in server/products/identify.ts:
+ * same model, prompt, JSON schema, validation and fallback), in chunks of at
+ * most 10 like one identify request. Provisional/not-found items are never
+ * normalized and never shown as resolved. Locally the Pages `AI` binding is
+ * replaced by workersAiRest.ts, which sends the identical input to the Workers
+ * AI REST API; it needs CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN
+ * (permission "Workers AI"). Prints `searchName` (cleaned Brave title) and
+ * `canonicalName` (what would be saved). Still nothing is persisted.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { matchRules } from '../../src/analytics/categories/engine'
 import { importExportText } from '../../src/domain/import/importExport'
 import { buildSuggestionItems } from '../../src/analytics/categories/suggestProtocol'
-import { braveSearch, cleanProductTitle, pickCandidate, searchQueries, type SearchResult } from '../../server/products/search'
+import { IDENTIFY_LIMITS } from '../../src/analytics/products/identityProtocol'
+import { normalizeStrongCandidates, toResolvedIdentity, type Normalized, type StrongCandidate } from '../../server/products/identify'
+import { braveSearch, cleanProductTitle, pickCandidate, searchQueries, type Candidate, type SearchResult } from '../../server/products/search'
+import { workersAiRest } from './workersAiRest'
 
 type Sku = { itemNumber: string; description: string; expect?: string }
 
@@ -33,6 +47,7 @@ const file = process.env.LIVE_SKUS_FILE ?? '.live-skus.json'
 const exportFile = process.env.LIVE_SKUS_FROM_EXPORT?.trim()
 const batchSize = Number(process.env.LIVE_N ?? 15)
 const offset = Number(process.env.LIVE_OFFSET ?? 0)
+const aiNormalize = process.env.LIVE_AI_NORMALIZE === '1'
 /** Stay well under Brave's per-second limit. */
 const DELAY_MS = Number(process.env.LIVE_DELAY_MS ?? 1100)
 const MAX_SKUS = 25
@@ -55,8 +70,17 @@ describe.skipIf(!key)('live Brave product identification', () => {
     expect(skus.length).toBeGreaterThan(0)
     expect(skus.length, `At most ${MAX_SKUS} SKUs per run`).toBeLessThanOrEqual(MAX_SKUS)
 
+    // Fail clearly (never silently skip) when AI normalization was requested but cannot run.
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim()
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim()
+    if (aiNormalize) {
+      expect(accountId && apiToken, 'LIVE_AI_NORMALIZE=1 needs CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN (Workers AI permission)').toBeTruthy()
+    }
+    const ai = aiNormalize ? workersAiRest(accountId!, apiToken!) : undefined
+
     const search = braveSearch(key!)
     const rows: Record<string, string | number>[] = []
+    const candidates = new Map<string, { item: StrongCandidate | null; weak: Candidate | null }>()
     let queries = 0
     let parsedResults = 0
     for (const sku of skus) {
@@ -87,7 +111,11 @@ describe.skipIf(!key)('live Brave product identification', () => {
         await sleep(DELAY_MS)
         if (candidate) break
       }
-      const name = candidate ? cleanProductTitle(candidate.result.title) : ''
+      const strong = candidate && candidate.evidence !== 'single-source'
+      candidates.set(item.itemNumber, {
+        item: strong ? { itemNumber: item.itemNumber, receiptDescription: item.descriptions[0]!, candidate: candidate! } : null,
+        weak: strong ? null : candidate,
+      })
       const outcome = error
         ? `error: ${error}`
         : !candidate
@@ -95,10 +123,6 @@ describe.skipIf(!key)('live Brave product identification', () => {
           : candidate.evidence === 'single-source'
             ? 'unresolved (provisional)'
             : `resolved (${candidate.evidence})`
-      // Would a deterministic rule categorize it? (Receipt text first, then the resolved name, as in the engine.)
-      const receiptRule = matchRules(item.descriptions[0]!)
-      const nameRule = !receiptRule && candidate && candidate.evidence !== 'single-source' ? matchRules(name) : null
-      const rule = receiptRule ?? nameRule
       rows.push({
         itemNumber: item.itemNumber,
         description: item.descriptions[0]!,
@@ -107,15 +131,53 @@ describe.skipIf(!key)('live Brave product identification', () => {
         confidence: candidate?.confidence ?? 0,
         sources: candidate?.sources ?? 0,
         basis: candidate ? candidate.evidence : '',
-        name: name.slice(0, 70),
-        ruleCategory: rule ? `${rule.rule.categoryId}${rule.rule.subcategoryId ? `/${rule.rule.subcategoryId}` : ''} (${receiptRule ? 'receipt text' : 'resolved name'})` : 'none',
         resultHosts: hostsSeen.slice(0, 5).join(', '),
         ms: Date.now() - started,
         ...(sku.expect ? { expect: sku.expect } : {}),
       })
     }
 
+    // Optional production AI normalization, strong matches only, ≤ 10 per call (one identify request).
+    const strongItems = [...candidates.values()].flatMap((c) => (c.item ? [c.item] : []))
+    const normalized = new Map<string, Normalized>()
+    let aiCalls = 0
+    if (ai) {
+      for (let i = 0; i < strongItems.length; i += IDENTIFY_LIMITS.maxItemsPerRequest) {
+        const chunk = strongItems.slice(i, i + IDENTIFY_LIMITS.maxItemsPerRequest)
+        aiCalls += 1
+        for (const [k, v] of await normalizeStrongCandidates(ai, chunk)) normalized.set(k, v)
+      }
+    }
+
+    // Names and rules: what would actually be saved, and what the engine would match (receipt text first).
+    const at = new Date().toISOString()
+    const names: Record<string, string>[] = []
+    for (const row of rows) {
+      const c = candidates.get(String(row.itemNumber))
+      const record = c?.item ? toResolvedIdentity(c.item, normalized.get(c.item.itemNumber), at) : null
+      const receiptRule = matchRules(String(row.description ?? ''))
+      const identityRule = !receiptRule && record ? (matchRules(record.canonicalName) ?? (record.productType ? matchRules(record.productType) : null)) : null
+      const rule = receiptRule ?? identityRule
+      row.rule = rule ? `${rule.rule.categoryId}${rule.rule.subcategoryId ? `/${rule.rule.subcategoryId}` : ''} (${receiptRule ? 'receipt text' : 'canonical name'})` : 'none'
+      names.push({
+        itemNumber: String(row.itemNumber),
+        description: String(row.description ?? ''),
+        searchName: c?.item ? cleanProductTitle(c.item.candidate.result.title) : c?.weak ? `${cleanProductTitle(c.weak.result.title)} [provisional, not resolved]` : '',
+        canonicalName: record ? record.canonicalName : '— (not resolved: nothing would be saved)',
+        brand: record?.brand ?? '',
+        productType: record?.productType ?? '',
+        method: record ? record.method : '',
+      })
+    }
+
     console.table(rows)
+    console.table(names)
+    if (aiNormalize) {
+      const normalizedCount = [...normalized.keys()].length
+      console.log(`AI normalization: ${aiCalls} call(s) for ${strongItems.length} resolved item(s); ${normalizedCount} normalized, ${strongItems.length - normalizedCount} fell back to the search name (method "web-search").`)
+    } else {
+      console.log('AI normalization off (set LIVE_AI_NORMALIZE=1): canonicalName is the cleaned search title, as production saves it without the AI binding.')
+    }
     const count = (p: string) => rows.filter((r) => String(r.outcome).startsWith(p)).length
     console.log(
       `\n${skus.length} SKUs · ${queries} Brave queries (≤ 2 per SKU) · resolved ${count('resolved')} · provisional ${count('unresolved')} · not found ${count('not_found')} · errors ${count('error')}`,

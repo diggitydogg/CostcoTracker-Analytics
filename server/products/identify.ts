@@ -85,7 +85,7 @@ export async function listIdentities(db: SqlDatabase): Promise<ProductIdentity[]
   return rows.map(rowToIdentity).filter((i): i is ProductIdentity => i !== null)
 }
 
-type Normalized = { normalizedName: string; brand: string | null; productType: string | null }
+export type Normalized = { normalizedName: string; brand: string | null; productType: string | null }
 
 const short = (v: unknown, max: number): string | null => {
   if (typeof v !== 'string') return null
@@ -160,6 +160,39 @@ export async function normalizeWithAi(
   return out
 }
 
+export type StrongCandidate = { itemNumber: string; receiptDescription: string; candidate: Candidate }
+
+/**
+ * The optional AI normalization step exactly as identification runs it: only
+ * for strong candidates, one call, and on any failure no normalization at all
+ * (the cleaned search title is used instead). Never changes confidence.
+ */
+export async function normalizeStrongCandidates(ai: AiBinding | undefined, strong: readonly StrongCandidate[]): Promise<Map<string, Normalized>> {
+  if (!ai || strong.length === 0) return new Map()
+  try {
+    return await normalizeWithAi(ai, strong)
+  } catch (error) {
+    console.error('normalize_error', error instanceof Error ? error.name : 'unknown')
+    return new Map()
+  }
+}
+
+/** The local catalog record we save for a strong candidate (AI-normalized name if available, else the cleaned search title). */
+export function toResolvedIdentity(f: StrongCandidate, n: Normalized | undefined, at: string): ProductIdentity {
+  return {
+    itemNumber: f.itemNumber,
+    status: 'resolved',
+    receiptDescription: f.receiptDescription,
+    canonicalName: n?.normalizedName ?? (cleanProductTitle(f.candidate.result.title) || f.receiptDescription),
+    brand: n?.brand ?? null,
+    productType: n?.productType ?? null,
+    confidence: f.candidate.confidence,
+    basis: f.candidate.evidence as ResolutionBasis,
+    method: n ? 'web-search+ai' : 'web-search',
+    resolvedAt: at,
+  }
+}
+
 export type IdentifyDeps = { db: SqlDatabase; search: WebSearch | null; ai?: AiBinding | undefined; now: Date }
 
 const UPSERT = `INSERT INTO product_identities (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -188,7 +221,7 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
   }
 
   // Transient discovery: search results exist only in this loop's memory.
-  const strong: { itemNumber: string; receiptDescription: string; candidate: Candidate }[] = []
+  const strong: StrongCandidate[] = []
   const weak: { itemNumber: string; receiptDescription: string; outcome: 'provisional' | 'not_found'; candidateName: string | null }[] = []
   for (const item of toSearch) {
     const receiptDescription = item.descriptions[0]!
@@ -213,32 +246,11 @@ export async function identifyItems(deps: IdentifyDeps, items: readonly SuggestR
   }
 
   // Resolve strong candidates into our own record (optional AI clean-up, one call; never changes confidence).
-  let normalized = new Map<string, Normalized>()
-  if (ai && strong.length > 0) {
-    try {
-      normalized = await normalizeWithAi(ai, strong)
-    } catch (error) {
-      console.error('normalize_error', error instanceof Error ? error.name : 'unknown')
-    }
-  }
+  const normalized = await normalizeStrongCandidates(ai, strong)
 
   const at = now.toISOString()
   const retryAfter = new Date(now.getTime() + UNRESOLVED_RETRY_MS).toISOString()
-  const resolved: ProductIdentity[] = strong.map((f) => {
-    const n = normalized.get(f.itemNumber)
-    return {
-      itemNumber: f.itemNumber,
-      status: 'resolved',
-      receiptDescription: f.receiptDescription,
-      canonicalName: n?.normalizedName ?? (cleanProductTitle(f.candidate.result.title) || f.receiptDescription),
-      brand: n?.brand ?? null,
-      productType: n?.productType ?? null,
-      confidence: f.candidate.confidence,
-      basis: f.candidate.evidence as ResolutionBasis,
-      method: n ? 'web-search+ai' : 'web-search',
-      resolvedAt: at,
-    }
-  })
+  const resolved: ProductIdentity[] = strong.map((f) => toResolvedIdentity(f, normalized.get(f.itemNumber), at))
   const unresolved: UnresolvedResult[] = weak.map((w) => ({
     itemNumber: w.itemNumber,
     status: 'unresolved',

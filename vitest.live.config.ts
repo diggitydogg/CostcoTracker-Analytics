@@ -9,5 +9,7 @@ export default defineConfig({
     include: ['scripts/live/**/*.live.ts'],
     environment: 'node',
     testTimeout: 10 * 60 * 1000,
+    // Always print the result tables, also when the run passes.
+    silent: false,
   },
 })

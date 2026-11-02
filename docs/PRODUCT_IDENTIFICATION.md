@@ -130,6 +130,16 @@ See `CLAUDE.md` for the bounded exception.
 - Without `SEARCH_API_KEY`, only the local catalog is used. Unknown items are reported as `unavailable`, and the dashboard notes that web search is not set up.
 - Without the migration, the catalog simply isn't used.
 
+## Live validation (local, read-only)
+`npm run validate:search` (`scripts/live/productSearch.live.ts`) runs the production query builder, Brave adapter, evidence classifier and title cleaner against real SKUs. It writes nothing: no D1, no migration, no saved results.
+- SKUs come from a backup file (`LIVE_SKUS_FROM_EXPORT=<file>`), taking distinct item numbers in file order. `LIVE_OFFSET` (default 0) skips earlier batches and `LIVE_N` (default 15) sets the batch size. A manual `.live-skus.json` (gitignored) also works.
+- Only the item number and receipt description are sent to Brave.
+- **Optional `LIVE_AI_NORMALIZE=1`:**
+  - runs the production normalization step (`normalizeStrongCandidates` → `toResolvedIdentity`) on resolved matches only;
+  - prints `searchName` (cleaned Brave title) next to `canonicalName` (what would be saved);
+  - never normalizes provisional or not-found items, and labels them "not resolved".
+- **Why it needs a token:** the Pages `AI` binding doesn't exist outside Cloudflare, so `scripts/live/workersAiRest.ts` sends the identical model input to the Workers AI REST API instead. That needs `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` (Workers AI permission) in your shell.
+
 ## Cost and request controls
 - **Local catalog first:** a resolved item number costs zero queries forever. Unresolved items are retried after 30 days. A failed search records nothing.
 - **Small requests:**
