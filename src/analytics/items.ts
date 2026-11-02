@@ -19,6 +19,7 @@
  * - "not-purchased": only seen in returns/adjustments (bought outside the data).
  * `recent` (last purchase within recentDays of as-of) is an independent flag.
  */
+import { identityTexts, type ProductIdentities, type ProductIdentity } from './products/identityProtocol'
 import type { AnalyticsThresholds } from './config'
 import { categorize, normalizeDescription, type CategoryAssignment, type CategoryOverrides } from './categories/engine'
 import type { CategoryRule } from './categories/rules'
@@ -35,6 +36,8 @@ export type ItemStats = {
   /** Distinct description variants, most recent first. */
   descriptions: string[]
   category: CategoryAssignment
+  /** Our resolved local catalog record for this item number, if any (display and traceability). */
+  identity: ProductIdentity | null
   cohort: ItemCohort
   recent: boolean
   firstPurchaseDate: string | null
@@ -86,6 +89,7 @@ export function computeItems(
   thresholds: AnalyticsThresholds,
   overrides: CategoryOverrides,
   rules: readonly CategoryRule[] | undefined,
+  identities: ProductIdentities = {},
 ): ItemAnalytics {
   const returnsByItem = new Map<string, typeof index.returns>()
   for (const r of index.returns) returnsByItem.set(r.itemNumber, [...(returnsByItem.get(r.itemNumber) ?? []), r])
@@ -139,7 +143,9 @@ export function computeItems(
       itemNumber,
       displayDescription: descriptions[0] ?? `Item ${itemNumber}`,
       descriptions,
-      category: categorize(itemNumber, descriptions, overrides, rules),
+      category: categorize(itemNumber, descriptions, overrides, rules, identityTexts(identities[itemNumber])),
+      // Our resolved local catalog record, for display/traceability; usable ones also feed the rules (identityTexts).
+      identity: identities[itemNumber] ?? null,
       cohort,
       recent: daysSince !== null && daysSince <= thresholds.recentDays,
       firstPurchaseDate: days.length ? dateFromDay(days[0]!) : null,

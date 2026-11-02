@@ -31,7 +31,7 @@ CostcoTracker Analytics turns exported CostcoTracker purchase history into usefu
 - Single owner. No public accounts.
 - Data is synced from CostcoTracker iOS into the owner's own Cloudflare D1 database, on the free plan.
 - Costco credentials never leave the phone. Barcodes and order numbers are never uploaded.
-- No trackers or third-party data sharing.
+- No trackers. Purchase data is not shared with third parties. The one exception is optional, owner-triggered product identification, which sends only the Costco item number and abbreviated receipt description to the configured search provider (see `PRIVACY.md`).
 - JSON export and import provide backup and portability.
 
 See `PRIVACY.md` and `docs/CLOUD_ARCHITECTURE.md`.

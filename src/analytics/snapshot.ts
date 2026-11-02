@@ -12,6 +12,7 @@ import type { CategoryRule } from './categories/rules'
 import { DEFAULT_THRESHOLDS, type AnalyticsThresholds } from './config'
 import { computeInflation, type InflationAnalytics } from './inflation'
 import { computeItems, type ItemAnalytics } from './items'
+import type { ProductIdentities } from './products/identityProtocol'
 import { buildIndex, type AnalyticsIndex } from './model'
 import { computeQuality, type DataQuality, type DatasetSourceInfo } from './quality'
 import { computeReturns, type ReturnAnalytics } from './returns'
@@ -24,6 +25,8 @@ export type AnalyticsOptions = {
   asOf?: string | null
   categoryOverrides?: CategoryOverrides
   categoryRules?: readonly CategoryRule[]
+  /** Our resolved local product catalog, keyed by item number. Rules may match canonical names after receipt descriptions. */
+  productIdentities?: ProductIdentities
   thresholds?: Partial<AnalyticsThresholds>
   source?: DatasetSourceInfo
 }
@@ -50,7 +53,7 @@ export function buildAnalyticsSnapshot(data: AnalyticsExportV1, options: Analyti
   const spending = computeSpending(index)
   const gross = spending.lifetime.grossCents
   const trips = computeTrips(index, thresholds.topN)
-  const items = computeItems(index, thresholds, options.categoryOverrides ?? {}, options.categoryRules)
+  const items = computeItems(index, thresholds, options.categoryOverrides ?? {}, options.categoryRules, options.productIdentities)
   const inflation = computeInflation(index, thresholds)
   const returns = computeReturns(index, items, gross, thresholds.topN)
   const adjustments = computeAdjustments(index, items, gross, thresholds.topN)

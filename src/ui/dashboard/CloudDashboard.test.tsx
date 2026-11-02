@@ -64,6 +64,17 @@ describe('cloud dashboard', () => {
     expect(await screen.findByRole('heading', { name: 'Cloud status', level: 2 })).toBeInTheDocument()
   })
 
+  it('states the privacy boundary accurately in the footer (no absolute "no third parties" claim)', async () => {
+    const h = await createCloudHarness()
+    await h.signIn()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    const footer = (await screen.findByRole('contentinfo')).textContent ?? ''
+    expect(footer).toContain('Your purchase data stays in your own cloud.')
+    expect(footer).toContain('sends only the Costco item number and abbreviated product description to the configured search provider')
+    expect(footer).toContain('No trackers.')
+    expect(footer).not.toMatch(/no third parties/i)
+  })
+
   it('shows an error if the cloud data cannot be loaded', async () => {
     const h = await createCloudHarness()
     await h.signIn()
@@ -220,5 +231,52 @@ describe('cloud AI category suggestions (mocked Workers AI)', () => {
     await user.click(screen.getByRole('button', { name: 'Suggest categories with AI' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('AI suggestions are not set up on this cloud')
     expect(screen.getByRole('region', { name: 'Spend by category' })).toBeInTheDocument()
+  })
+})
+
+describe('cloud product identification (fake web search, mocked Workers AI)', () => {
+  it('resolves an item number once into the local catalog, and applies the rules from it on reload without searching again', async () => {
+    const queries: string[] = []
+    const search = {
+      name: 'fake',
+      search: vi.fn(async (q: string) => {
+        queries.push(q)
+        return q.includes('9000006')
+          ? [{ title: 'Anker SOLIX C1000 Portable Power Station | Costco', url: 'https://www.costco.com/anker.product.1.html', snippet: 'Item 9000006', imageUrl: null }]
+          : []
+      }),
+    }
+    const ai = { run: vi.fn(async () => ({ response: { suggestions: [] } })) }
+    const h = await createCloudHarness({ search, ai })
+    const device = await enrollTestDevice(h)
+    await h.device.sync(device.deviceToken, fixtureData((d) => (d.items.find((i) => i.itemNumber === '9000006')!.description = 'ANKERSOLIX')))
+    const user = userEvent.setup()
+    render(<App api={h.api} store={createDatasetStore(new IDBFactory())} cloudTestOptions={options()} />)
+    await screen.findByTestId('dashboard')
+    const toCategories = () => user.click(within(screen.getByRole('navigation', { name: 'Dashboard sections' })).getByRole('button', { name: 'Categories' }))
+    await toCategories()
+    await user.click(screen.getByRole('button', { name: 'Suggest categories with AI' }))
+    expect(await screen.findByTestId('identification-summary')).toHaveTextContent('1 identified by item number (1 now categorized')
+    // Only "Costco", the item number and the receipt description reached the search provider.
+    expect(queries).toEqual(['Costco 9000006 ANKERSOLIX'])
+    // AI was used once, only to normalize the search result; it was never asked for a category.
+    const aiInputs = (ai.run.mock.calls as unknown as [string, { messages: { content: string }[] }][]).map((c) => c[1].messages[0]!.content)
+    expect(aiInputs).toHaveLength(1)
+    expect(aiInputs[0]).toContain('You normalize product identities')
+    expect(h.requests.some((r) => r.path === '/api/categories/suggest')).toBe(false)
+    // Our own catalog record only; the search result's URL/snippet were used transiently and discarded.
+    expect(h.db.raw.prepare('SELECT item_number, status, canonical_name, resolution_basis FROM product_identities').all()).toEqual([
+      { item_number: '9000006', status: 'resolved', canonical_name: 'Anker SOLIX C1000 Portable Power Station', resolution_basis: 'costco.com' },
+    ])
+    const row = JSON.stringify(h.db.raw.prepare('SELECT * FROM product_identities').all())
+    expect(row).not.toContain('https://')
+    expect(row).not.toContain('Item 9000006')
+
+    // Reload: identities come from the D1 cache with the dataset; no new search.
+    await user.click(within(screen.getByTestId('dashboard')).getByRole('button', { name: 'Reload dashboard' }))
+    await waitFor(() => expect(h.requests.filter((r) => r.path === '/api/products/identities')).toHaveLength(2))
+    await toCategories()
+    expect(screen.getByRole('region', { name: 'Uncategorized items' })).not.toHaveTextContent('ANKERSOLIX')
+    expect(queries).toHaveLength(1)
   })
 })

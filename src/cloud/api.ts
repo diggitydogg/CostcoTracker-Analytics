@@ -183,6 +183,9 @@ export function createCloudApi(fetchImpl: FetchLike = (input, init) => fetch(inp
     exportMeta: () => request<ExportMeta>('GET', '/api/export/meta'),
     /** Optional AI category suggestions: sends only item numbers and descriptions (see suggestProtocol.ts). */
     suggestCategories: (items: SuggestRequestItem[]) => request<unknown>('POST', '/api/categories/suggest', { items }),
+    /** Product identification: cache first, targeted web search for unknown item numbers (item number + description only). */
+    identifyProducts: (items: SuggestRequestItem[]) => request<unknown>('POST', '/api/products/identify', { items }),
+    productIdentities: () => request<unknown>('GET', '/api/products/identities'),
     exportPage: <C extends ExportCollectionName>(collection: C, after: string | null, limit = 1000) => {
       const qs = new URLSearchParams({ limit: String(limit) })
       if (after !== null) qs.set('after', after)

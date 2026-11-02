@@ -29,7 +29,7 @@ The application must not transmit analytics data to:
 - an AI provider
 - any party other than the owner's own deployment
 
-This holds unless a feature explicitly asks for permission and clearly describes the exact data being sent. The only such feature is the optional AI category suggestions, described below.
+This holds unless a feature explicitly asks for permission and clearly describes the exact data being sent. Such features are the optional AI category suggestions and product identification by web search, described below.
 
 The browser enforces this with a Content Security Policy of `connect-src 'self'`. The page can only call the owner's own same-origin API, never a third-party origin. There are no analytics, telemetry, web fonts or CDNs.
 
@@ -59,6 +59,14 @@ Request payload (enforced by a strict schema and tests):
 Never sent: receipt/order IDs or numbers, barcodes, purchase dates, warehouse or location, prices, spend, quantities, returns or adjustment amounts, other receipt contents, or any account, session, device or Costco credential data.
 
 AI output is a suggested category, never source truth. Nothing changes until the owner accepts or edits a suggestion, which then becomes an ordinary browser-side category override. Suggestions are not stored in the cloud. Details: `docs/AI_CATEGORY_SUGGESTIONS.md`.
+
+## Product identification (web search)
+
+Optional and cloud-only. It runs only when the owner clicks **Suggest categories with AI**, which first looks up Uncategorized item numbers that are not yet in the owner's local product catalog.
+
+For such an item number, the server sends **only** the word "Costco", the Costco item number and the abbreviated receipt description to the Brave Search API, using the owner's own `SEARCH_API_KEY`. One of the up-to-three queries is a Brave `site:app.warehouserunner.com` search that carries the item number only. This is the only feature that sends data to a party other than Cloudflare. It never sends a barcode, order number, date, warehouse, price, quantity, purchase history, or account or device data. No website, including costco.com and Warehouse Runner, is fetched or scraped.
+
+Search results are used **transiently**, inside that one request, to resolve the product. They are then discarded: no titles, snippets, URLs, thumbnails, rankings or responses are stored. What is kept in the owner's D1 is the owner's own catalog record for the item number: canonical name, brand, product type, confidence, how it was resolved, and timestamps. A resolved item number is never searched again. A match supported by only one ordinary source is not saved as an identity; Costco's own page, a Warehouse Runner product page for that exact item number, or two agreeing independent sources are required. Details: `docs/PRODUCT_IDENTIFICATION.md`.
 
 ## Demo / testing data
 

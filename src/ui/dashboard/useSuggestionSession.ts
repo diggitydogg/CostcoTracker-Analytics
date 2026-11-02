@@ -1,11 +1,27 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { matchRules } from '../../analytics/categories/engine'
 import { batches, type CategorySuggestion, type SuggestRequestItem, type SuggestResponse } from '../../analytics/categories/suggestProtocol'
+import { IDENTIFY_LIMITS, identityTexts, type IdentifyResponse, type ProductIdentity } from '../../analytics/products/identityProtocol'
 import { AI_SUGGESTIONS } from './aiConfig'
 
 /** Sends one batch (≤ 25 items) to the suggestion endpoint. */
 export type BatchCategorySuggester = (items: SuggestRequestItem[]) => Promise<SuggestResponse>
 
+/** Identifies one batch (≤ 10 items) by item number: cache first, then targeted web search. */
+export type BatchIdentifier = (items: SuggestRequestItem[]) => Promise<IdentifyResponse>
+
 export type SuggestionDecision = 'accepted' | 'changed' | 'left'
+
+export type IdentificationSummary = {
+  /** Items with a usable product identity (Costco.com, a Costco-specialist page or 2+ agreeing sources) found or confirmed this session. */
+  identified: number
+  /** Items with only one ordinary source: left unresolved (shown as possible matches this session only). */
+  provisional: number
+  /** Of those, items the deterministic rules now categorize (no AI needed). */
+  categorizedByRules: number
+  /** Items no search result named by item number. */
+  notFound: number
+}
 
 export type SuggestionSession = {
   /** Suggestions received in this review session, by item number. */
@@ -16,11 +32,16 @@ export type SuggestionSession = {
   failed: ReadonlyMap<string, string>
   decisions: ReadonlyMap<string, SuggestionDecision>
   running: boolean
-  progress: { done: number; total: number } | null
+  progress: { phase: 'identify' | 'suggest'; done: number; total: number } | null
+  identification: IdentificationSummary
+  /** Non-blocking notes from product identification (e.g. web search not configured). */
+  notes: string[]
+  /** Candidate names of provisional (unresolved) lookups, for this session only — never stored. */
+  possibleMatches: ReadonlyMap<string, string>
   errors: string[]
   usage: { requests: number; totalTokens: number | null }
   /** User-triggered only. Sends up to AI_SUGGESTIONS.maxItemsPerRun not-yet-requested items, one batch at a time. */
-  run: (items: readonly SuggestRequestItem[]) => Promise<void>
+  run: (items: readonly SuggestRequestItem[], options?: { alreadyIdentified?: ReadonlySet<string> }) => Promise<void>
   /** Re-sends items whose batch failed (explicit user action). */
   retryFailed: (items: readonly SuggestRequestItem[]) => Promise<void>
   decide: (itemNumber: string, decision: SuggestionDecision) => void
@@ -31,13 +52,20 @@ export type SuggestionSession = {
  * Suggestions never touch analytics: only `decide` callers that write a
  * category override change anything, and that is the normal override path.
  */
-export function useSuggestionSession(suggester: BatchCategorySuggester): SuggestionSession {
+export function useSuggestionSession(
+  suggester: BatchCategorySuggester,
+  identifier?: BatchIdentifier,
+  onIdentities?: (found: ProductIdentity[]) => void,
+): SuggestionSession {
   const [suggestions, setSuggestions] = useState<ReadonlyMap<string, CategorySuggestion>>(new Map())
   const [requested, setRequested] = useState<ReadonlySet<string>>(new Set())
   const [failed, setFailed] = useState<ReadonlyMap<string, string>>(new Map())
   const [decisions, setDecisions] = useState<ReadonlyMap<string, SuggestionDecision>>(new Map())
   const [running, setRunning] = useState(false)
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const [progress, setProgress] = useState<SuggestionSession['progress']>(null)
+  const [identification, setIdentification] = useState<IdentificationSummary>({ identified: 0, provisional: 0, categorizedByRules: 0, notFound: 0 })
+  const [notes, setNotes] = useState<string[]>([])
+  const [possibleMatches, setPossibleMatches] = useState<ReadonlyMap<string, string>>(new Map())
   const [errors, setErrors] = useState<string[]>([])
   const [usage, setUsage] = useState<{ requests: number; totalTokens: number | null }>({ requests: 0, totalTokens: null })
   // Synchronous guards: a double click can never send a batch twice.
@@ -45,19 +73,71 @@ export function useSuggestionSession(suggester: BatchCategorySuggester): Suggest
   const runningRef = useRef(false)
 
   const process = useCallback(
-    async (items: readonly SuggestRequestItem[]) => {
-      if (runningRef.current || items.length === 0) return
+    async (all: readonly SuggestRequestItem[], alreadyIdentified: ReadonlySet<string> = new Set()) => {
+      if (runningRef.current || all.length === 0) return
       runningRef.current = true
       setRunning(true)
       setErrors([])
-      for (const i of items) requestedRef.current.add(i.itemNumber)
+      setNotes([])
+      for (const i of all) requestedRef.current.add(i.itemNumber)
       setRequested(new Set(requestedRef.current))
+      let items: readonly SuggestRequestItem[] = all
+      try {
+        // Phase 1 — identify by item number (cache first, web search for unknown items).
+        const toIdentify = identifier ? all.filter((i) => !alreadyIdentified.has(i.itemNumber)) : []
+        if (identifier && toIdentify.length > 0) {
+          setProgress({ phase: 'identify', done: 0, total: toIdentify.length })
+          const found: ProductIdentity[] = []
+          let notFound = 0
+          let provisional = 0
+          let done = 0
+          for (const batch of batches(toIdentify, IDENTIFY_LIMITS.maxItemsPerRequest)) {
+            try {
+              const res = await identifier(batch)
+              if (!res.searchConfigured) setNotes((n) => (n.some((x) => x.startsWith('Web search')) ? n : [...n, 'Web search is not set up, so only previously identified products were used.']))
+              for (const r of res.results) {
+                if (r.status === 'resolved') found.push(r)
+                else if (r.status === 'unresolved' && r.outcome === 'provisional') {
+                  provisional += 1
+                  const name = r.candidateName
+                  if (name) setPossibleMatches((m) => new Map(m).set(r.itemNumber, name))
+                } else if (r.status === 'unresolved') notFound += 1
+              }
+            } catch (error) {
+              // Identification is an optimization: on failure the AI step still runs.
+              const message = error instanceof Error ? error.message : 'The request failed.'
+              setNotes((n) => (n.includes(`Product lookup: ${message}`) ? n : [...n, `Product lookup: ${message}`]))
+            }
+            done += batch.length
+            setProgress({ phase: 'identify', done, total: toIdentify.length })
+          }
+          onIdentities?.(found)
+          // Items the deterministic rules can now categorize from the identified name skip the AI.
+          const byRules = new Set(found.filter((f) => identityTexts(f).some((t) => matchRules(t) !== null)).map((f) => f.itemNumber))
+          items = all.filter((i) => !byRules.has(i.itemNumber))
+          setIdentification((s) => ({
+            identified: s.identified + found.length,
+            provisional: s.provisional + provisional,
+            categorizedByRules: s.categorizedByRules + byRules.size,
+            notFound: s.notFound + notFound,
+          }))
+        }
+      } catch {
+        items = all
+      }
+      if (items.length === 0) {
+        runningRef.current = false
+        setRunning(false)
+        setProgress(null)
+        return
+      }
+      // Phase 2 — AI suggestions for what the rules still cannot place (owner review unchanged).
       setFailed((f) => {
         const next = new Map(f)
         for (const i of items) next.delete(i.itemNumber)
         return next
       })
-      setProgress({ done: 0, total: items.length })
+      setProgress({ phase: 'suggest', done: 0, total: items.length })
       let done = 0
       try {
         for (const batch of batches(items)) {
@@ -86,24 +166,29 @@ export function useSuggestionSession(suggester: BatchCategorySuggester): Suggest
             setErrors((e) => (e.includes(message) ? e : [...e, message]))
           }
           done += batch.length
-          setProgress({ done, total: items.length })
+          setProgress({ phase: 'suggest', done, total: items.length })
         }
       } finally {
         runningRef.current = false
         setRunning(false)
       }
     },
-    [suggester],
+    [suggester, identifier, onIdentities],
   )
 
   const run = useCallback(
-    (items: readonly SuggestRequestItem[]) =>
-      process(items.filter((i) => !requestedRef.current.has(i.itemNumber)).slice(0, AI_SUGGESTIONS.maxItemsPerRun)),
+    (items: readonly SuggestRequestItem[], options: { alreadyIdentified?: ReadonlySet<string> } = {}) =>
+      process(items.filter((i) => !requestedRef.current.has(i.itemNumber)).slice(0, AI_SUGGESTIONS.maxItemsPerRun), options.alreadyIdentified),
     [process],
   )
 
   const retryFailed = useCallback(
-    (items: readonly SuggestRequestItem[]) => process(items.filter((i) => failed.has(i.itemNumber) && !requestedRef.current.has(i.itemNumber)).slice(0, AI_SUGGESTIONS.maxItemsPerRun)),
+    (items: readonly SuggestRequestItem[]) =>
+      // Retries only the AI step; these items were already identified (or not) in the first run.
+      process(
+        items.filter((i) => failed.has(i.itemNumber) && !requestedRef.current.has(i.itemNumber)).slice(0, AI_SUGGESTIONS.maxItemsPerRun),
+        new Set(items.map((i) => i.itemNumber)),
+      ),
     [process, failed],
   )
 
@@ -112,7 +197,7 @@ export function useSuggestionSession(suggester: BatchCategorySuggester): Suggest
   }, [])
 
   return useMemo(
-    () => ({ suggestions, requested, failed, decisions, running, progress, errors, usage, run, retryFailed, decide }),
-    [suggestions, requested, failed, decisions, running, progress, errors, usage, run, retryFailed, decide],
+    () => ({ suggestions, requested, failed, decisions, running, progress, identification, notes, possibleMatches, errors, usage, run, retryFailed, decide }),
+    [suggestions, requested, failed, decisions, running, progress, identification, notes, possibleMatches, errors, usage, run, retryFailed, decide],
   )
 }

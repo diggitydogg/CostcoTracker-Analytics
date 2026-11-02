@@ -12,7 +12,8 @@ import { OverviewSection } from './sections/OverviewSection'
 import { ReturnsAdjustmentsSection } from './sections/ReturnsAdjustmentsSection'
 import { WarehousesSection } from './sections/WarehousesSection'
 import { useCategoryOverrides } from './useCategoryOverrides'
-import { useSuggestionSession, type BatchCategorySuggester } from './useSuggestionSession'
+import type { ProductIdentities, ProductIdentity } from '../../analytics/products/identityProtocol'
+import { useSuggestionSession, type BatchCategorySuggester, type BatchIdentifier } from './useSuggestionSession'
 
 export type DashboardTab = 'overview' | 'items' | 'inflation' | 'categories' | 'returns' | 'warehouses'
 
@@ -49,6 +50,9 @@ export function Dashboard({
   toolbar,
   initialTab = 'overview',
   suggester,
+  identifier,
+  productIdentities,
+  onIdentities,
 }: {
   data: AnalyticsExportV1
   source: DatasetSourceInfo
@@ -58,12 +62,19 @@ export function Dashboard({
   initialTab?: DashboardTab
   /** Cloud mode only: sends Uncategorized items to the AI suggestion endpoint. Omitted in local-file mode. */
   suggester?: BatchCategorySuggester
+  /** Cloud mode only: identifies item numbers (cache first, then targeted web search) before AI suggestions. */
+  identifier?: BatchIdentifier
+  /** Our resolved local product catalog (by item number); rules may match canonical names after receipt text. */
+  productIdentities?: ProductIdentities
+  /** Receives identities found during a review session. */
+  onIdentities?: (found: ProductIdentity[]) => void
 }) {
   const store = overridesStore ?? getDefaultStore()
   const overrides = useCategoryOverrides(store)
   const s = useMemo(
-    () => buildAnalyticsSnapshot(data, { source, categoryOverrides: overrides.overrides }),
-    [data, source, overrides.overrides],
+    () =>
+      buildAnalyticsSnapshot(data, { source, categoryOverrides: overrides.overrides, ...(productIdentities ? { productIdentities } : {}) }),
+    [data, source, overrides.overrides, productIdentities],
   )
   const lookups = useMemo<Lookups>(() => {
     const warehouseLabelByReceipt = new Map<string, string>()
@@ -76,7 +87,7 @@ export function Dashboard({
     }
   }, [s])
 
-  const session = useSuggestionSession(suggester ?? unavailableSuggester)
+  const session = useSuggestionSession(suggester ?? unavailableSuggester, identifier, onIdentities)
   const ai = suggester ? session : null
 
   const [tab, setTab] = useState<DashboardTab>(initialTab)

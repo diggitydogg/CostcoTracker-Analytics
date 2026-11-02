@@ -65,11 +65,23 @@ Rules:
 6. confidence: a number from 0 to 1 — your probability that the category is correct.
 7. reason: at most 12 words, based only on the description.
 8. Return exactly one entry per input item, with the same itemNumber. Do not add items.
-9. Use only the descriptions given. Do not look anything up.`
+9. Use only the information given. Do not look anything up.
+10. Some items include "identifiedAs": the product resolved for that exact Costco item number in the local catalog. Prefer it over the abbreviated description when choosing the category; still abstain if the category is unclear.`
 
 /** The exact model input for a batch. Pure — tested to contain only item numbers and descriptions. */
-export function buildModelInput(items: readonly SuggestRequestItem[]): Record<string, unknown> {
-  const payload = items.map((i) => ({ itemNumber: i.itemNumber, descriptions: i.descriptions.map(cleanDescription) }))
+/** Our resolved local catalog record for an item number (see server/products). */
+export type IdentityHint = { canonicalName: string | null; brand: string | null; productType: string | null }
+
+export function buildModelInput(items: readonly SuggestRequestItem[], identities: ReadonlyMap<string, IdentityHint> = new Map()): Record<string, unknown> {
+  const payload = items.map((i) => {
+    const id = identities.get(i.itemNumber)
+    const identifiedAs = id ? Object.fromEntries(Object.entries({ name: id.canonicalName, brand: id.brand, productType: id.productType }).filter(([, v]) => v)) : null
+    return {
+      itemNumber: i.itemNumber,
+      descriptions: i.descriptions.map(cleanDescription),
+      ...(identifiedAs && Object.keys(identifiedAs).length ? { identifiedAs } : {}),
+    }
+  })
   return {
     messages: [
       { role: 'system', content: SYSTEM_PROMPT.replace('{TAXONOMY}', taxonomyForPrompt()) },
@@ -186,7 +198,11 @@ function usageOf(raw: unknown): SuggestResponse['usage'] {
   return Object.keys(defined).length ? defined : undefined
 }
 
-export async function suggestCategories(ai: AiBinding | undefined, items: readonly SuggestRequestItem[]): Promise<SuggestResponse> {
+export async function suggestCategories(
+  ai: AiBinding | undefined,
+  items: readonly SuggestRequestItem[],
+  identities: ReadonlyMap<string, IdentityHint> = new Map(),
+): Promise<SuggestResponse> {
   if (!ai || typeof ai.run !== 'function') {
     throw new ApiError(
       503,
@@ -196,7 +212,7 @@ export async function suggestCategories(ai: AiBinding | undefined, items: readon
   }
   let raw: unknown
   try {
-    raw = await ai.run(CATEGORY_SUGGESTION_MODEL, buildModelInput(items))
+    raw = await ai.run(CATEGORY_SUGGESTION_MODEL, buildModelInput(items, identities))
   } catch (error) {
     // Never log the payload; the error class is enough.
     console.error('ai_error', error instanceof Error ? error.name : 'unknown')

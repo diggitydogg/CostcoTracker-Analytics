@@ -38,5 +38,6 @@ export {
   type CategorySuggester,
 } from './categories/engine'
 export { DEFAULT_RULES, type CategoryRule } from './categories/rules'
+export { identityTexts, type ProductIdentities, type ProductIdentity } from './products/identityProtocol'
 export { CATEGORIES, categoryLabel, isValidAssignment, subcategoryLabel, type CategoryId } from './categories/taxonomy'
 export type { DataQuality, DatasetSourceInfo } from './quality'

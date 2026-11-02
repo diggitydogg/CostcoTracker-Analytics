@@ -7,7 +7,9 @@ import type { SuggestRequestItem, SuggestResponse } from '../../analytics/catego
 import { DatasetBuilder } from '../../analytics/test/builder'
 import { createOverridesStore, type OverridesStore } from '../../persistence/overridesStore'
 import { Dashboard } from './Dashboard'
-import type { BatchCategorySuggester } from './useSuggestionSession'
+import type { BatchCategorySuggester, BatchIdentifier } from './useSuggestionSession'
+import type { ProductIdentity } from '../../analytics/products/identityProtocol'
+import { useState } from 'react'
 
 const SOURCE = { source: 'cloud' as const }
 
@@ -222,5 +224,153 @@ describe('AI category suggestions — review workflow', () => {
     const s = buildAnalyticsSnapshot(data(), { categoryOverrides: { '100': { categoryId: 'pet' } } })
     expect(s.items.byItemNumber.get('100')!.category).toMatchObject({ categoryId: 'pet', source: 'override' })
     expect(buildAnalyticsSnapshot(data()).items.byItemNumber.get('100')!.category).toMatchObject({ categoryId: 'paper-goods', source: 'rule' })
+  })
+})
+
+describe('identify by item number before asking the AI', () => {
+  const identity = (itemNumber: string, name: string): ProductIdentity => ({
+    itemNumber,
+    status: 'resolved',
+    receiptDescription: 'X',
+    canonicalName: name,
+    brand: null,
+    productType: null,
+    confidence: 0.9,
+    basis: 'costco.com',
+    method: 'web-search',
+    resolvedAt: '2026-11-01T00:00:00.000Z',
+  })
+  const FOUND: Record<string, ProductIdentity> = {
+    '101': identity('101', 'Anker SOLIX C1000 Portable Power Station'), // a rule matches "ANKER"
+    '103': identity('103', 'Brondell Swash Thinline CL2200 Bidet Toilet Seat'), // no rule matches
+  }
+
+  function identifierMock(opts: { fail?: boolean; searchConfigured?: boolean } = {}) {
+    return vi.fn<BatchIdentifier>(async (items) => {
+      if (opts.fail) throw new Error('Too many requests.')
+      return {
+        searchConfigured: opts.searchConfigured ?? true,
+        results: items.map((i) =>
+          FOUND[i.itemNumber]
+            ? { ...FOUND[i.itemNumber]!, cached: false }
+            : opts.searchConfigured === false
+              ? { itemNumber: i.itemNumber, status: 'unavailable' as const, reason: 'Web search is not configured.' }
+              : { itemNumber: i.itemNumber, status: 'unresolved' as const, outcome: 'not_found' as const, candidateName: null, retryAfter: '2026-12-01T00:00:00.000Z', cached: false },
+        ),
+      }
+    })
+  }
+
+  /** Holds identities like the cloud dataset provider does. */
+  function Harness(props: { identifier: BatchIdentifier; suggester: BatchCategorySuggester; store: OverridesStore; initial?: Record<string, ProductIdentity> }) {
+    const [identities, setIdentities] = useState<Record<string, ProductIdentity>>(props.initial ?? {})
+    return (
+      <Dashboard
+        data={data()}
+        source={SOURCE}
+        overridesStore={props.store}
+        today="2026-04-01"
+        initialTab="categories"
+        suggester={props.suggester}
+        identifier={props.identifier}
+        productIdentities={identities}
+        onIdentities={(found) => setIdentities((s) => ({ ...s, ...Object.fromEntries(found.map((f) => [f.itemNumber, f])) }))}
+      />
+    )
+  }
+
+  async function start(identifier: BatchIdentifier, initial?: Record<string, ProductIdentity>) {
+    const store = createOverridesStore(new IDBFactory())
+    await store.save({ '105': { categoryId: 'home', subcategoryId: null } })
+    const fn = suggester()
+    const user = userEvent.setup()
+    render(<Harness identifier={identifier} suggester={fn} store={store} {...(initial ? { initial } : {})} />)
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Uncategorized items' })).not.toHaveTextContent('TORO BULLY'))
+    return { user, fn, store }
+  }
+
+  it('identifies first, lets the rules categorize identified products, and sends only the rest to the AI', async () => {
+    const identifier = identifierMock()
+    const { user, fn, store } = await start(identifier)
+    await user.click(runButton())
+    await waitFor(() => expect(fn).toHaveBeenCalledTimes(1))
+    // The lookup received only item numbers and descriptions, before any AI call.
+    expect(identifier).toHaveBeenCalledTimes(1)
+    for (const item of identifier.mock.calls[0]![0]) expect(Object.keys(item).sort()).toEqual(['descriptions', 'itemNumber'])
+    expect(identifier.mock.calls[0]![0].map((i) => i.itemNumber)).toEqual(['101', '104', '103', '102'])
+    // 101 is now categorized by the deterministic rules from its identified name → not sent to the AI.
+    expect(fn.mock.calls[0]![0].map((i) => i.itemNumber)).toEqual(['104', '103', '102'])
+    expect(await screen.findByTestId('identification-summary')).toHaveTextContent(
+      'Product lookup this session: 2 identified by item number (1 now categorized by the description rules from the identified product name), 2 not found.',
+    )
+    expect(uncategorizedText()).not.toContain('ANKERSOLIX')
+    // That is a rule result, not an override: nothing was written to the override store.
+    expect(await store.load()).toEqual({ status: 'loaded', overrides: { '105': { categoryId: 'home', subcategoryId: null } } })
+    // The review row shows what the item was identified as, with its source.
+    // The review row shows our own catalog record (no third-party links are kept).
+    expect(row('103')).toHaveTextContent('In your catalog as Brondell Swash Thinline CL2200 Bidet Toilet Seat (Costco.com)')
+    expect(within(row('103')).queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('shows in the item drawer that a rule matched the identified product name', async () => {
+    const { user } = await start(identifierMock(), { '101': FOUND['101']! })
+    await user.click(within(screen.getByRole('navigation', { name: 'Dashboard sections' })).getByRole('button', { name: 'Items' }))
+    await user.click(screen.getAllByRole('button', { name: /ANKERSOLIX/ })[0]!)
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByTestId('product-identity')).toHaveTextContent("In your product catalog as Anker SOLIX C1000 Portable Power Station")
+    expect(within(dialog).getByTestId('product-identity')).toHaveTextContent("resolved from Costco's own page for this item number")
+    expect(within(dialog).getByTestId('category-basis')).toHaveTextContent('matched “ANKER” in the identified product name')
+  })
+
+  it('names a Costco-specialist resolution in the item drawer', async () => {
+    const { user } = await start(identifierMock(), { '101': { ...FOUND['101']!, basis: 'costco-specialist', confidence: 0.85 } })
+    await user.click(within(screen.getByRole('navigation', { name: 'Dashboard sections' })).getByRole('button', { name: 'Items' }))
+    await user.click(screen.getAllByRole('button', { name: /ANKERSOLIX/ })[0]!)
+    expect(within(screen.getByRole('dialog')).getByTestId('product-identity')).toHaveTextContent(
+      'resolved from a Costco-specialist product page (Warehouse Runner) for this item number',
+    )
+  })
+
+  it('skips the lookup for items already identified and still sends the rest to the AI', async () => {
+    const identifier = identifierMock()
+    const { user, fn } = await start(identifier, { '103': FOUND['103']! })
+    await user.click(runButton())
+    await waitFor(() => expect(fn).toHaveBeenCalledTimes(1))
+    expect(identifier.mock.calls[0]![0].map((i) => i.itemNumber)).toEqual(['101', '104', '102'])
+    expect(fn.mock.calls[0]![0].map((i) => i.itemNumber)).toContain('103')
+  })
+
+  it('falls back to the AI step when the lookup fails or web search is not configured', async () => {
+    const failing = await start(identifierMock({ fail: true }))
+    await failing.user.click(runButton())
+    await waitFor(() => expect(failing.fn).toHaveBeenCalledTimes(1))
+    expect(failing.fn.mock.calls[0]![0]).toHaveLength(4)
+    expect(screen.getByText(/Product lookup: Too many requests\./)).toBeInTheDocument()
+  })
+
+  it('shows a single-source match as provisional and still sends that item to the AI', async () => {
+    const identifier = vi.fn<BatchIdentifier>(async (items) => ({
+      searchConfigured: true,
+      results: items.map((i) =>
+        i.itemNumber === '101'
+          ? { itemNumber: '101', status: 'unresolved' as const, outcome: 'provisional' as const, candidateName: 'Anker SOLIX C1000 Portable Power Station', retryAfter: '2026-12-01T00:00:00.000Z', cached: false }
+          : { itemNumber: i.itemNumber, status: 'unresolved' as const, outcome: 'not_found' as const, candidateName: null, retryAfter: '2026-12-01T00:00:00.000Z', cached: false },
+      ),
+    }))
+    const { user, fn } = await start(identifier)
+    await user.click(runButton())
+    await waitFor(() => expect(fn).toHaveBeenCalledTimes(1))
+    // Not categorized by the rules from a single third-party page: it goes to the AI like any unknown item.
+    expect(fn.mock.calls[0]![0].map((i) => i.itemNumber)).toContain('101')
+    expect(uncategorizedText()).toContain('ANKERSOLIX')
+    expect(await screen.findByTestId('identification-summary')).toHaveTextContent('0 identified by item number, 1 possible match from a single unconfirmed source (not used), 3 not found.')
+    expect(await screen.findByTestId('suggestion-101')).toHaveTextContent('Possible match (one unconfirmed source, not saved or used): Anker SOLIX C1000 Portable Power Station')
+  })
+
+  it('notes when web search is not set up', async () => {
+    const { user, fn } = await start(identifierMock({ searchConfigured: false }))
+    await user.click(runButton())
+    await waitFor(() => expect(fn).toHaveBeenCalledTimes(1))
+    expect(screen.getByText(/Web search is not set up/)).toBeInTheDocument()
   })
 })

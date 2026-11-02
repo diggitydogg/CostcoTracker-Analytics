@@ -22,6 +22,11 @@ export type CategoryAssignment = {
   ruleId: string | null
   /** The phrase of that rule that matched. */
   matchedPhrase: string | null
+  /**
+   * Which text the rule matched: a receipt description, or our resolved
+   * catalog name/type for this item number (product identification).
+   */
+  basis: 'receipt' | 'identity' | null
 }
 
 export type CategoryOverride = { categoryId: CategoryId; subcategoryId?: string | null }
@@ -106,14 +111,50 @@ export function matchRules(
 }
 
 /**
- * Categorizes one item. `descriptions` are the item's description variants,
- * most recent first; the first one any rule matches decides.
+ * One narrow refinement from our resolved product identity: a grocery item
+ * whose identified name says it is frozen ("Frozen Dark Chocolate
+ * Strawberries") is Frozen, even when the receipt text matched another
+ * grocery subcategory first ("CHOC STRAWBERRIES" → produce) or a more
+ * specific snack phrase matched the name. Only identity texts can trigger it,
+ * so receipt-only categorizations never change.
+ */
+const frozenCache = new WeakMap<readonly CategoryRule[], CategoryRule[]>()
+const frozenRulesOf = (rules: readonly CategoryRule[]) => {
+  let found = frozenCache.get(rules)
+  if (!found) frozenCache.set(rules, (found = rules.filter((r) => r.categoryId === 'grocery' && r.subcategoryId === 'frozen')))
+  return found
+}
+
+function frozenFromIdentity(
+  assignment: CategoryAssignment,
+  identityTexts: readonly string[],
+  rules: readonly CategoryRule[],
+): CategoryAssignment | null {
+  if (assignment.categoryId !== 'grocery' || assignment.subcategoryId === 'frozen' || identityTexts.length === 0) return null
+  const frozenRules = frozenRulesOf(rules)
+  for (const text of identityTexts) {
+    const match = matchRules(text, frozenRules)
+    if (match) return { ...assignment, subcategoryId: 'frozen', ruleId: match.rule.id, matchedPhrase: match.phrase, basis: 'identity' }
+  }
+  return null
+}
+
+/**
+ * Categorizes one item. Order of decision:
+ * 1. the owner's override;
+ * 2. rules on the receipt `descriptions` (most recent first);
+ * 3. rules on `identityTexts`: our resolved catalog name/type for this exact
+ *    item number (consulted when no receipt text matched, so existing rule
+ *    results never change), plus one refinement: a grocery item the identity
+ *    names as frozen is Frozen (see frozenFromIdentity);
+ * 4. Uncategorized.
  */
 export function categorize(
   itemNumber: string,
   descriptions: readonly string[],
   overrides: CategoryOverrides = {},
   rules: readonly CategoryRule[] = DEFAULT_RULES,
+  identityTexts: readonly string[] = [],
 ): CategoryAssignment {
   const override = Object.prototype.hasOwnProperty.call(overrides, itemNumber) ? overrides[itemNumber] : undefined
   if (override && isValidAssignment(override.categoryId, override.subcategoryId)) {
@@ -123,21 +164,30 @@ export function categorize(
       source: 'override',
       ruleId: null,
       matchedPhrase: null,
+      basis: null,
     }
   }
-  for (const description of descriptions) {
-    const match = matchRules(description, rules)
-    if (match) {
-      return {
-        categoryId: match.rule.categoryId,
-        subcategoryId: match.rule.subcategoryId ?? null,
-        source: 'rule',
-        ruleId: match.rule.id,
-        matchedPhrase: match.phrase,
+  const sources: [readonly string[], 'receipt' | 'identity'][] = [
+    [descriptions, 'receipt'],
+    [identityTexts, 'identity'],
+  ]
+  for (const [texts, basis] of sources) {
+    for (const text of texts) {
+      const match = matchRules(text, rules)
+      if (match) {
+        const assignment: CategoryAssignment = {
+          categoryId: match.rule.categoryId,
+          subcategoryId: match.rule.subcategoryId ?? null,
+          source: 'rule',
+          ruleId: match.rule.id,
+          matchedPhrase: match.phrase,
+          basis,
+        }
+        return frozenFromIdentity(assignment, identityTexts, rules) ?? assignment
       }
     }
   }
-  return { categoryId: UNCATEGORIZED, subcategoryId: null, source: 'fallback', ruleId: null, matchedPhrase: null }
+  return { categoryId: UNCATEGORIZED, subcategoryId: null, source: 'fallback', ruleId: null, matchedPhrase: null, basis: null }
 }
 
 // ── Override import/export (for a future review UI) ──────────────────────────

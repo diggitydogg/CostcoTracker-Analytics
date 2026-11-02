@@ -191,6 +191,44 @@ describe('production QA rules', () => {
   })
 })
 
+describe('rules exposed by live product identification', () => {
+  it('fixes the misfiled identified product names', () => {
+    expect(matchRules('Kirkland Signature Chicken Tortilla Soup')).toMatchObject({ rule: { categoryId: 'grocery', subcategoryId: 'pantry' }, phrase: 'TORTILLA SOUP' })
+    expect(matchRules('Yellow Nectarines')).toMatchObject({ rule: { subcategoryId: 'produce' } })
+    expect(matchRules('APRICOTS 2 LB')).toMatchObject({ rule: { subcategoryId: 'produce' } })
+    expect(matchRules("Mrs. Meyer's Clean Day Multi-Surface Spray, Lemon Verbena")).toMatchObject({ rule: { categoryId: 'cleaning' } })
+    expect(matchRules('MULTISURFACE CLEANING SPRAY')).toMatchObject({ rule: { categoryId: 'cleaning' } })
+  })
+
+  it('leaves the neighbouring rules alone', () => {
+    expect(matchRules('KS FLOUR TORTILLAS 30CT')).toMatchObject({ rule: { subcategoryId: 'bakery' } })
+    expect(matchRules('TORTILLA CHIPS 3 LB')).toMatchObject({ rule: { subcategoryId: 'snacks' } })
+    expect(matchRules("Mrs. Meyer's Clean Day Hand Soap Refill")).toMatchObject({ rule: { categoryId: 'personal-care' } })
+    expect(matchRules('CHOC STRAWBERRIES')).toMatchObject({ rule: { subcategoryId: 'produce' } }) // receipt text alone: unchanged
+  })
+
+  it('a grocery item the identified name calls frozen is Frozen; receipt-only results never change', () => {
+    // The receipt matched produce first; the identity says frozen.
+    expect(categorize('1', ['CHOC STRAWBERRIES'], {}, DEFAULT_RULES, ['Kirkland Signature Frozen Dark Chocolate Strawberries'])).toMatchObject({
+      categoryId: 'grocery',
+      subcategoryId: 'frozen',
+      source: 'rule',
+      matchedPhrase: 'FROZEN',
+      basis: 'identity',
+    })
+    // No receipt match, and the name's snack phrase comes first: still Frozen.
+    expect(categorize('1', ['KS DIPPED STRAWB'], {}, DEFAULT_RULES, ['Kirkland Signature Frozen Dark Chocolate Strawberries'])).toMatchObject({ subcategoryId: 'frozen', basis: 'identity' })
+    // Without an identity nothing changes.
+    expect(categorize('1', ['CHOC STRAWBERRIES'])).toMatchObject({ subcategoryId: 'produce', basis: 'receipt' })
+    // An identity that does not say frozen does not change the receipt result.
+    expect(categorize('1', ['CHOC STRAWBERRIES'], {}, DEFAULT_RULES, ['Chocolate Covered Strawberries'])).toMatchObject({ subcategoryId: 'produce', basis: 'receipt' })
+    // Non-grocery categories are never turned into Frozen (e.g. a "Frozen" themed toy or costume).
+    expect(categorize('1', ['KIDS COSTUME'], {}, DEFAULT_RULES, ['Disney Frozen Elsa Costume'])).toMatchObject({ categoryId: 'seasonal' })
+    // The owner's override still wins.
+    expect(categorize('1', ['CHOC STRAWBERRIES'], { '1': { categoryId: 'grocery', subcategoryId: 'snacks' } }, DEFAULT_RULES, ['Frozen Strawberries'])).toMatchObject({ source: 'override', subcategoryId: 'snacks' })
+  })
+})
+
 describe('category overrides', () => {
   it('override beats rules and leaves records untouched', () => {
     const b = new DatasetBuilder()

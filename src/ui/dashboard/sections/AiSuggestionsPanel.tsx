@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { CATEGORIES, categoryLabel, isValidAssignment, subcategoryLabel, type CategoryId } from '../../../analytics'
 import { buildSuggestionItems, type CategorySuggestion } from '../../../analytics/categories/suggestProtocol'
+import { resolutionBasisShortLabel } from '../../../analytics/products/identityProtocol'
 import { AI_SUGGESTIONS } from '../aiConfig'
 import { aiCandidates } from '../derive'
 import { useDashboard } from '../context'
@@ -22,6 +23,8 @@ export function AiSuggestionsPanel() {
   const [editing, setEditing] = useState<string | null>(null)
   const candidates = useMemo(() => aiCandidates(s.items.items), [s])
   const requestItems = useMemo(() => buildSuggestionItems(candidates), [candidates])
+  // Items whose product identity is already cached skip the lookup step.
+  const alreadyIdentified = useMemo(() => new Set(candidates.filter((c) => c.identity !== null).map((c) => c.itemNumber)), [candidates])
   if (!ai) return null
 
   const pending = requestItems.filter((i) => !ai.requested.has(i.itemNumber) && !ai.suggestions.has(i.itemNumber))
@@ -46,12 +49,12 @@ export function AiSuggestionsPanel() {
   return (
     <Panel
       title="AI category suggestions"
-      subtitle="Optional. Sends only the item number and Costco description of Uncategorized items to Workers AI in your own Cloudflare account — no prices, dates, stores or receipts. Nothing changes until you accept a suggestion."
+      subtitle="Optional. First looks up each Uncategorized item number once with a targeted web search (item number and receipt description only). Search results are used only to resolve the product and are not kept; only your own catalog record is saved, so each item number is looked up once. Items the rules can then categorize are done; the rest go to Workers AI in your own Cloudflare account for a suggestion. No prices, dates, stores or receipts are sent. AI suggestions change nothing until you accept them."
       actions={
         <button
           type="button"
           disabled={ai.running || nextRun === 0}
-          onClick={() => void ai.run(pending)}
+          onClick={() => void ai.run(pending, { alreadyIdentified })}
           className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {ai.running ? 'Suggesting…' : 'Suggest categories with AI'}
@@ -71,11 +74,25 @@ export function AiSuggestionsPanel() {
 
       {ai.progress && ai.running && (
         <div role="status" className="mt-2 text-sm text-slate-700">
-          Asking the AI… {count(ai.progress.done)} of {count(ai.progress.total)} items
+          {ai.progress.phase === 'identify' ? 'Looking up products by item number…' : 'Asking the AI…'} {count(ai.progress.done)} of {count(ai.progress.total)} items
           <div className="mt-1 h-1.5 rounded-full bg-slate-100">
             <div className="h-1.5 rounded-full bg-sky-700" style={{ width: `${(ai.progress.done / Math.max(1, ai.progress.total)) * 100}%` }} />
           </div>
         </div>
+      )}
+
+      {(ai.identification.identified > 0 || ai.identification.provisional > 0 || ai.identification.notFound > 0) && (
+        <p className="mt-2 text-sm text-slate-700" data-testid="identification-summary">
+          Product lookup this session: {count(ai.identification.identified)} identified by item number
+          {ai.identification.categorizedByRules > 0 && ` (${count(ai.identification.categorizedByRules)} now categorized by the description rules from the identified product name)`}
+          {ai.identification.provisional > 0 && `, ${count(ai.identification.provisional)} possible ${ai.identification.provisional === 1 ? 'match' : 'matches'} from a single unconfirmed source (not used)`}
+          {ai.identification.notFound > 0 && `, ${count(ai.identification.notFound)} not found`}.
+        </p>
+      )}
+      {ai.notes.length > 0 && (
+        <p role="status" className="mt-1 text-xs text-slate-500">
+          {ai.notes.join(' ')}
+        </p>
       )}
 
       {ai.errors.length > 0 && !ai.running && (
@@ -143,6 +160,17 @@ export function AiSuggestionsPanel() {
                         <td className="px-2 py-2">
                           <span className="block font-medium text-slate-900">{name}</span>
                           <span className="text-xs text-slate-500">#{sg.itemNumber}</span>
+                          {item?.identity ? (
+                            <span className="block text-xs text-slate-600">
+                              In your catalog as {item.identity.canonicalName} ({resolutionBasisShortLabel(item.identity.basis)})
+                            </span>
+                          ) : (
+                            ai.possibleMatches.get(sg.itemNumber) && (
+                              <span className="block text-xs text-slate-600">
+                                Possible match (one unconfirmed source, not saved or used): {ai.possibleMatches.get(sg.itemNumber)}
+                              </span>
+                            )
+                          )}
                         </td>
                         <td className="px-2 py-2">
                           {sg.categoryId === null ? (

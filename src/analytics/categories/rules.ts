@@ -37,7 +37,9 @@ export const DEFAULT_RULES: CategoryRule[] = [
   // Specific phrases that would otherwise be captured by a broader rule below.
   g('specific-meat', 'meat-seafood', ['HOT DOG*', 'CORN DOG*']),
   g('specific-produce', 'produce', ['BELL PEPPER*', 'SWEET POTATO*', 'MINI PEPPER*']),
-  g('specific-pantry', 'pantry', ['PEANUT BUTTER', 'ALMOND BUTTER', 'OLIVE OIL', 'AVOCADO OIL', 'COCONUT OIL', 'CHICKEN BROTH', 'BONE BROTH']),
+  g('specific-pantry', 'pantry', ['PEANUT BUTTER', 'ALMOND BUTTER', 'OLIVE OIL', 'AVOCADO OIL', 'COCONUT OIL', 'CHICKEN BROTH', 'BONE BROTH',
+    // Soup, not tortillas (bakery) or chicken (meat).
+    'TORTILLA SOUP']),
   g('specific-snacks', 'snacks', ['MILK CHOCOLATE', 'DARK CHOCOLATE', 'BEEF JERKY', 'TRAIL MIX', 'FRUIT SNACK*', 'GRANOLA BAR*', 'PROTEIN BAR*', 'POPCORNERS']),
   // Water/faucet filters belong with household filters, not with faucets (home).
   { id: 'specific-household', categoryId: 'household', phrases: ['FAUCET FILTER*', 'WATER FILTER*'] },
@@ -77,7 +79,7 @@ export const DEFAULT_RULES: CategoryRule[] = [
     id: 'cleaning',
     categoryId: 'cleaning',
     phrases: [
-      'DISINFECTING WIPES', 'DISINFECT*', 'DETERGENT', 'LAUNDRY', 'DISHWASHER', 'DISH SOAP', 'CLEANER', 'CLEANING',
+      'DISINFECTING WIPES', 'DISINFECT*', 'MULTI SURFACE', 'MULTISURFACE', 'DETERGENT', 'LAUNDRY', 'DISHWASHER', 'DISH SOAP', 'CLEANER', 'CLEANING',
       'BLEACH', 'LYSOL', 'CLOROX', 'TIDE', 'CASCADE', 'SPONGE*', 'FABRIC SOFTENER', 'DRYER SHEETS', 'OXICLEAN', 'SCRUB*',
     ],
   },
@@ -181,7 +183,7 @@ export const DEFAULT_RULES: CategoryRule[] = [
     'GRAPE*', 'LETTUCE', 'ROMAINE', 'SPINACH', 'SALAD', 'TOMATO*', 'ONION*', 'POTATO*', 'CARROT*', 'LEMON*', 'LIME*',
     'ORANGE*', 'MANDARIN*', 'CLEMENTINE*', 'MANGO*', 'PINEAPPLE*', 'BROCCOLI', 'CUCUMBER*', 'ASPARAGUS', 'KALE',
     'CELERY', 'GARLIC', 'MUSHROOM*', 'PEAR', 'PEARS', 'PEACH*', 'PLUM*', 'CHERR*', 'WATERMELON', 'MELON*',
-    'CANTALOUPE', 'KIWI*', 'ZUCCHINI', 'SQUASH', 'CILANTRO', 'HERBS', 'VEGGIE*', 'VEGETABLE*', 'FRUIT', 'PRODUCE',
+    'CANTALOUPE', 'NECTARINE*', 'APRICOT*', 'KIWI*', 'ZUCCHINI', 'SQUASH', 'CILANTRO', 'HERBS', 'VEGGIE*', 'VEGETABLE*', 'FRUIT', 'PRODUCE',
   ]),
   // Prepared/deli foods that are clearly groceries but fit no subcategory. Last, so any
   // more specific rule above (meat, produce, pantry…) wins first.

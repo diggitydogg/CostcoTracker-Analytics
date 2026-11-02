@@ -9,7 +9,19 @@ The iOS app is the source of truth for collected receipt/order data. This web ap
 ## Core principles
 
 1. **Owner-controlled privacy**
-   - Analytics data may be stored only in the owner's own deployment (Cloudflare D1) and in browser memory/IndexedDB. Never send it to any other service.
+   - Analytics data may be stored only in the owner's own deployment (Cloudflare D1) and in browser memory/IndexedDB. Never send it to any other service, except as allowed by the bounded product-identification exception below.
+   - **Product-identification exception (the only one).** To identify a product, the app may send a third-party web search provider ONLY:
+     - the Costco item number;
+     - the abbreviated receipt description, or generic product text (e.g. text read from a product photo).
+
+     It must NEVER send:
+     - receipt/order IDs, order numbers or barcodes;
+     - dates or warehouse/location;
+     - prices, spend or quantities;
+     - purchase history;
+     - account, session or device information.
+
+     The feature must stay optional and owner-triggered, with no automatic or background lookups. Its request schema must be strict, so any other field is rejected. Search results may be stored only as far as the provider's terms explicitly allow.
    - Never store Costco cookies/passwords/tokens, receipt barcodes, or order numbers in the cloud.
    - No tracking/analytics SDKs.
    - No feature may require a paid tier; anything that could must be optional and documented.

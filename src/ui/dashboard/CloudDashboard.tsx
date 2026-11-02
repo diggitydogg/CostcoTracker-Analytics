@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { suggestResponseSchema, type SuggestRequestItem, type SuggestResponse } from '../../analytics/categories/suggestProtocol'
+import { identifyResponseSchema, type IdentifyResponse } from '../../analytics/products/identityProtocol'
 import { useCloud } from '../../cloud/CloudContext'
 import { useCloudDataset } from '../../cloud/CloudDatasetContext'
 import type { OverridesStore } from '../../persistence/overridesStore'
@@ -18,7 +19,7 @@ const timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-d
 export function CloudDashboard({ overridesStore, today }: { overridesStore?: OverridesStore; today?: string }) {
   const cache = useCloudDataset()
   if (!cache) throw new Error('CloudDashboard must be used inside <CloudDatasetProvider>')
-  const { dataset, loading, error, loadedAt, stale, ensureLoaded, reload } = cache
+  const { dataset, loading, error, loadedAt, stale, ensureLoaded, reload, identities, addIdentities } = cache
   const { api, handle } = useCloud()
   // Owner-only AI category suggestions. Errors become plain messages (a lost session signs out as usual).
   const suggester = useCallback(
@@ -32,6 +33,21 @@ export function CloudDashboard({ overridesStore, today }: { overridesStore?: Ove
       const parsed = suggestResponseSchema.safeParse(raw)
       if (!parsed.success) throw new Error('The AI suggestion response was not in the expected format.')
       return parsed.data as SuggestResponse
+    },
+    [api, handle],
+  )
+  // Product identification by item number: cache first, targeted web search for unknown items.
+  const identifier = useCallback(
+    async (items: SuggestRequestItem[]): Promise<IdentifyResponse> => {
+      let raw: unknown
+      try {
+        raw = await api.identifyProducts(items)
+      } catch (e) {
+        throw new Error(handle(e), { cause: e })
+      }
+      const parsed = identifyResponseSchema.safeParse(raw)
+      if (!parsed.success) throw new Error('The product lookup response was not in the expected format.')
+      return parsed.data as IdentifyResponse
     },
     [api, handle],
   )
@@ -67,6 +83,9 @@ export function CloudDashboard({ overridesStore, today }: { overridesStore?: Ove
           data={dataset.data}
           source={source}
           suggester={suggester}
+          identifier={identifier}
+          productIdentities={identities}
+          onIdentities={addIdentities}
           {...(overridesStore ? { overridesStore } : {})}
           {...(today ? { today } : {})}
           toolbar={

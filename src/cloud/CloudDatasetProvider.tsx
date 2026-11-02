@@ -1,12 +1,24 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useCloud } from './CloudContext'
 import { CloudDatasetContext, type CloudDatasetState } from './CloudDatasetContext'
+import { identitiesResponseSchema, type ProductIdentities, type ProductIdentity } from '../analytics/products/identityProtocol'
+import type { CloudApi } from './api'
 import { fetchCloudDataset } from './cloudDataset'
+
+/** Cached identities are optional: any failure (e.g. an older deployment) simply means none. */
+async function loadIdentities(api: CloudApi): Promise<ProductIdentities> {
+  try {
+    const parsed = identitiesResponseSchema.safeParse(await api.productIdentities())
+    return parsed.success ? Object.fromEntries(parsed.data.identities.map((i) => [i.itemNumber, i])) : {}
+  } catch {
+    return {}
+  }
+}
 
 /** Holds the in-memory dataset cache described in CloudDatasetContext.ts. */
 export function CloudDatasetProvider({ children }: { children: ReactNode }) {
   const { api, handle } = useCloud()
-  const [state, setState] = useState<CloudDatasetState>({ dataset: null, loading: false, error: null, loadedAt: null, stale: false })
+  const [state, setState] = useState<CloudDatasetState>({ dataset: null, loading: false, error: null, loadedAt: null, stale: false, identities: {} })
   const requested = useRef(false)
   const generation = useRef(0)
   const loadedSeq = useRef<number | null>(null)
@@ -17,11 +29,11 @@ export function CloudDatasetProvider({ children }: { children: ReactNode }) {
     requested.current = true
     const gen = ++generation.current
     setState((s) => ({ ...s, loading: true, error: null }))
-    fetchCloudDataset(api).then(
-      (dataset) => {
+    Promise.all([fetchCloudDataset(api), loadIdentities(api)]).then(
+      ([dataset, identities]) => {
         if (gen !== generation.current) return
         loadedSeq.current = dataset.meta.changeSeq
-        setState({ dataset, loading: false, error: null, loadedAt: new Date(), stale: staleGeneration.current === gen })
+        setState({ dataset, loading: false, error: null, loadedAt: new Date(), stale: staleGeneration.current === gen, identities })
       },
       (error: unknown) => {
         if (gen !== generation.current) return
@@ -48,9 +60,14 @@ export function CloudDatasetProvider({ children }: { children: ReactNode }) {
     [markStale],
   )
 
+  const addIdentities = useCallback((found: readonly ProductIdentity[]) => {
+    if (found.length === 0) return
+    setState((s) => ({ ...s, identities: { ...s.identities, ...Object.fromEntries(found.map((f) => [f.itemNumber, f])) } }))
+  }, [])
+
   const value = useMemo(
-    () => ({ ...state, ensureLoaded, reload: fetchNow, markStale, noteChangeSeq }),
-    [state, ensureLoaded, fetchNow, markStale, noteChangeSeq],
+    () => ({ ...state, ensureLoaded, reload: fetchNow, markStale, noteChangeSeq, addIdentities }),
+    [state, ensureLoaded, fetchNow, markStale, noteChangeSeq, addIdentities],
   )
   return <CloudDatasetContext.Provider value={value}>{children}</CloudDatasetContext.Provider>
 }
