@@ -19,7 +19,7 @@ export type Harness = {
 type CallOptions = { body?: unknown; rawBody?: string; cookie?: string; bearer?: string; origin?: string | null }
 
 export function createHarness(
-  options: { configureKey?: boolean; ai?: AiBinding; aiLimiter?: { check(now: Date): void }; search?: WebSearch | null } = {},
+  options: { configureKey?: boolean; ai?: AiBinding; aiLimiter?: { check(now: Date): void }; catalogLimiter?: { check(now: Date): void }; search?: WebSearch | null } = {},
 ): Harness {
   const db = nodeSqliteDatabase()
   applyMigrations(db, MIGRATIONS)
@@ -35,6 +35,7 @@ export function createHarness(
     // A fresh limiter per harness so tests never share the isolate-wide one.
     aiLimiter: options.aiLimiter ?? createRateLimiter(),
     identifyLimiter: createRateLimiter(),
+    catalogLimiter: options.catalogLimiter ?? createRateLimiter(),
     // Never reach a real search API from tests.
     search: options.search ?? null,
   })

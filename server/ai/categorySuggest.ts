@@ -223,14 +223,17 @@ export async function suggestCategories(
 }
 
 /** Best-effort sliding-window limiter (per isolate; no storage). */
-export function createRateLimiter(limit: { maxRequests: number; windowMs: number } = CATEGORY_SUGGESTION_RATE_LIMIT) {
+export function createRateLimiter(
+  limit: { maxRequests: number; windowMs: number } = CATEGORY_SUGGESTION_RATE_LIMIT,
+  message = 'Too many AI suggestion requests. Wait a few minutes and try again.',
+) {
   const hits: number[] = []
   return {
     check(now: Date): void {
       const t = now.getTime()
       while (hits.length && hits[0]! <= t - limit.windowMs) hits.shift()
       if (hits.length >= limit.maxRequests) {
-        throw new ApiError(429, 'rate_limited', 'Too many AI suggestion requests. Wait a few minutes and try again.')
+        throw new ApiError(429, 'rate_limited', message)
       }
       hits.push(t)
     },

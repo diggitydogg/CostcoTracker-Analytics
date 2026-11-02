@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { buildAnalyticsSnapshot, type DatasetSourceInfo } from '../../analytics'
 import type { AnalyticsExportV1 } from '../../domain/export/v1'
 import { createOverridesStore, type OverridesStore } from '../../persistence/overridesStore'
-import { DashboardContext, type DashboardContextValue, type Drill, type Lookups } from './context'
+import { DashboardContext, type CatalogEditor, type DashboardContextValue, type Drill, type Lookups } from './context'
 import { DrillDrawer } from './DrillDrawer'
 import { count, date, todayIso } from './format'
 import { CategoriesSection } from './sections/CategoriesSection'
@@ -53,6 +53,7 @@ export function Dashboard({
   identifier,
   productIdentities,
   onIdentities,
+  catalog,
 }: {
   data: AnalyticsExportV1
   source: DatasetSourceInfo
@@ -68,6 +69,8 @@ export function Dashboard({
   productIdentities?: ProductIdentities
   /** Receives identities found during a review session. */
   onIdentities?: (found: ProductIdentity[]) => void
+  /** Cloud mode only: confirm, edit and remove owner-confirmed product identities. */
+  catalog?: CatalogEditor
 }) {
   const store = overridesStore ?? getDefaultStore()
   const overrides = useCategoryOverrides(store)
@@ -94,8 +97,8 @@ export function Dashboard({
   const [stack, setStack] = useState<Drill[]>([])
   const open = useCallback((d: Drill) => setStack((st) => [...st, d]), [])
   const ctx = useMemo<DashboardContextValue>(
-    () => ({ s, lookups, open, overrides, today, ai }),
-    [s, lookups, open, overrides, today, ai],
+    () => ({ s, lookups, open, overrides, today, ai, catalog: catalog ?? null }),
+    [s, lookups, open, overrides, today, ai, catalog],
   )
 
   const q = s.quality

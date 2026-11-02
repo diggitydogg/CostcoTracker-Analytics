@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { suggestResponseSchema, type SuggestRequestItem, type SuggestResponse } from '../../analytics/categories/suggestProtocol'
-import { identifyResponseSchema, type IdentifyResponse } from '../../analytics/products/identityProtocol'
+import { identifyResponseSchema, identityResponseSchema, type IdentifyResponse } from '../../analytics/products/identityProtocol'
 import { useCloud } from '../../cloud/CloudContext'
 import { useCloudDataset } from '../../cloud/CloudDatasetContext'
 import type { OverridesStore } from '../../persistence/overridesStore'
+import type { CatalogEditor } from './context'
 import { Button, Notice } from '../cloud/primitives'
 import { Dashboard } from './Dashboard'
 
@@ -19,7 +20,7 @@ const timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-d
 export function CloudDashboard({ overridesStore, today }: { overridesStore?: OverridesStore; today?: string }) {
   const cache = useCloudDataset()
   if (!cache) throw new Error('CloudDashboard must be used inside <CloudDatasetProvider>')
-  const { dataset, loading, error, loadedAt, stale, ensureLoaded, reload, identities, addIdentities } = cache
+  const { dataset, loading, error, loadedAt, stale, ensureLoaded, reload, identities, addIdentities, removeIdentity } = cache
   const { api, handle } = useCloud()
   // Owner-only AI category suggestions. Errors become plain messages (a lost session signs out as usual).
   const suggester = useCallback(
@@ -51,6 +52,29 @@ export function CloudDashboard({ overridesStore, today }: { overridesStore?: Ove
     },
     [api, handle],
   )
+  // Owner-confirmed identities: saved in the owner's own catalog, then applied without a reload.
+  const catalog = useMemo<CatalogEditor>(() => {
+    const call = async (send: () => Promise<unknown>): Promise<unknown> => {
+      try {
+        return await send()
+      } catch (e) {
+        throw new Error(handle(e), { cause: e })
+      }
+    }
+    const saved = (raw: unknown) => {
+      const parsed = identityResponseSchema.safeParse(raw)
+      if (!parsed.success) throw new Error('The catalog response was not in the expected format.')
+      addIdentities([parsed.data.identity])
+    }
+    return {
+      confirm: async (itemNumber, receiptDescription, fields) => saved(await call(() => api.confirmIdentity({ itemNumber, receiptDescription, ...fields }))),
+      update: async (itemNumber, fields) => saved(await call(() => api.updateIdentity(itemNumber, fields))),
+      remove: async (itemNumber) => {
+        await call(() => api.removeIdentity(itemNumber))
+        removeIdentity(itemNumber)
+      },
+    }
+  }, [api, handle, addIdentities, removeIdentity])
   useEffect(() => ensureLoaded(), [ensureLoaded])
 
   const tombstoned = dataset?.meta.counts.tombstoned ?? 0
@@ -86,6 +110,7 @@ export function CloudDashboard({ overridesStore, today }: { overridesStore?: Ove
           identifier={identifier}
           productIdentities={identities}
           onIdentities={addIdentities}
+          catalog={catalog}
           {...(overridesStore ? { overridesStore } : {})}
           {...(today ? { today } : {})}
           toolbar={

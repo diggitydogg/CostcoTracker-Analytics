@@ -39,15 +39,29 @@ describe('deterministic rules on identified products', () => {
     expect(categorize('3', ['ANKERSOLIX'], { '3': { categoryId: 'home' } }, undefined, ['Anker Power Bank'])).toMatchObject({ categoryId: 'home', source: 'override' })
   })
 
-  it('uses only identities backed by Costco.com or two agreeing independent sources', () => {
+  it('uses only identities backed by Costco.com, a specialist page, two agreeing sources, or the owner', () => {
     expect(identityTexts(identity('1', 'Anker Power Bank', { productType: 'power bank' }))).toEqual(['Anker Power Bank', 'power bank'])
     expect(identityTexts(identity('1', 'Anker Power Bank', { basis: 'corroborated', confidence: 0.8 }))).toEqual(['Anker Power Bank'])
     expect(identityTexts(identity('1', 'Synthetic Test Mat', { basis: 'costco-specialist', confidence: 0.85 }))).toEqual(['Synthetic Test Mat'])
+    expect(identityTexts(identity('1', 'Synthetic Rain Boot', { basis: 'owner-confirmed', confidence: 1, method: 'owner', productType: 'rain boot' }))).toEqual(['Synthetic Rain Boot', 'rain boot'])
     // Defensive: a record that is somehow not trusted is never used.
     expect(identityTexts(identity('1', 'Anker Power Bank', { basis: 'single-source' as never }))).toEqual([])
     expect(identityTexts(identity('1', 'Anker Power Bank', { confidence: 0.5 }))).toEqual([])
     expect(identityTexts({ ...identity('1', 'x'), status: 'unresolved' as never })).toEqual([])
     expect(identityTexts(undefined)).toEqual([])
+  })
+
+  it('an owner-confirmed identity categorizes through the deterministic rules like any resolved one', () => {
+    const b = new DatasetBuilder()
+    b.buy('2026-03-01', '9200001', 4_999, 1, { description: 'SYN NECT' })
+    const data = b.build()
+    expect(buildAnalyticsSnapshot(data).items.byItemNumber.get('9200001')!.category.categoryId).toBe('uncategorized')
+    const owner = identity('9200001', 'Synthetic Yellow Nectarines', { basis: 'owner-confirmed', confidence: 1, method: 'owner' })
+    const s = buildAnalyticsSnapshot(data, { productIdentities: { '9200001': owner } })
+    expect(s.items.byItemNumber.get('9200001')!.category).toMatchObject({ categoryId: 'grocery', subcategoryId: 'produce', source: 'rule', basis: 'identity' })
+    expect(s.items.byItemNumber.get('9200001')!.identity?.basis).toBe('owner-confirmed')
+    // Removing the identity puts it back exactly as before.
+    expect(buildAnalyticsSnapshot(data, { productIdentities: {} }).items.byItemNumber.get('9200001')!.category.categoryId).toBe('uncategorized')
   })
 
   it('flows through the snapshot, keeps totals reconciled and exposes the identity for traceability', () => {

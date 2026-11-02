@@ -18,7 +18,7 @@
  * those two values only. Nothing about purchases is sent.
  */
 import { z } from 'zod'
-import { suggestRequestItemSchema, type SuggestRequestItem } from '../categories/suggestProtocol'
+import { cleanDescription, ITEM_NUMBER_PATTERN, SUGGEST_LIMITS, suggestRequestItemSchema, type SuggestRequestItem } from '../categories/suggestProtocol'
 
 export const IDENTIFY_LIMITS = {
   /** Items per request (each may cost up to MAX_QUERIES_PER_ITEM = 3 search queries). */
@@ -40,10 +40,60 @@ export const identifyRequestSchema = z
 
 export type IdentifyRequestItem = SuggestRequestItem
 
-/** Why we accepted a resolution (our own classification of the evidence; no search content). */
-export type ResolutionBasis = 'costco.com' | 'costco-specialist' | 'corroborated'
+/**
+ * Why we accepted a resolution (our own classification; no search content):
+ * web evidence (`costco.com`, `costco-specialist`, `corroborated`), or the
+ * owner's own explicit confirmation (`owner-confirmed`).
+ */
+export type ResolutionBasis = 'costco.com' | 'costco-specialist' | 'corroborated' | 'owner-confirmed'
 
-export const RESOLUTION_BASES: readonly ResolutionBasis[] = ['costco.com', 'costco-specialist', 'corroborated']
+export const RESOLUTION_BASES: readonly ResolutionBasis[] = ['costco.com', 'costco-specialist', 'corroborated', 'owner-confirmed']
+
+/**
+ * Owner-confirmed records: confidence 1 means "the owner asserted this", not
+ * search certainty. The basis says so, and the UI shows "Owner confirmed"
+ * instead of a percentage. Only these records can be edited or removed.
+ */
+export const OWNER_CONFIRMED_CONFIDENCE = 1
+export const OWNER_CONFIRMED_METHOD = 'owner'
+
+export const isOwnerConfirmed = (identity: Pick<ProductIdentity, 'basis'> | null | undefined): boolean => identity?.basis === 'owner-confirmed'
+
+export const OWNER_IDENTITY_LIMITS = { maxNameLength: 120, maxBrandLength: 60, maxTypeLength: 60, maxRequestBytes: 2 * 1024 } as const
+
+/** Owner-typed text: single-line, trimmed, bounded, and not a link (we never keep third-party URLs). */
+const ownerText = (max: number, label: string) =>
+  z
+    .string()
+    .min(1, { error: `${label} must not be empty.` })
+    .max(max, { error: `${label} is at most ${max} characters.` })
+    .refine((t) => cleanDescription(t) === t, { error: `${label} must be single-line, trimmed text.` })
+    .refine((t) => !/:\/\/|^www\.|\bwww\.[a-z0-9-]+\./i.test(t), { error: `${label} must not be a web address.` })
+
+const ownerFields = {
+  canonicalName: ownerText(OWNER_IDENTITY_LIMITS.maxNameLength, 'Product name'),
+  brand: ownerText(OWNER_IDENTITY_LIMITS.maxBrandLength, 'Brand').nullable(),
+  productType: ownerText(OWNER_IDENTITY_LIMITS.maxTypeLength, 'Product type').nullable(),
+}
+
+/** POST /api/products/confirm: the owner's explicit identity for one item number. Strict: nothing else is accepted. */
+export const confirmIdentityRequestSchema = z
+  .object({
+    itemNumber: z.string().regex(ITEM_NUMBER_PATTERN, { error: 'itemNumber has an unsupported format.' }),
+    receiptDescription: z
+      .string()
+      .min(1)
+      .max(SUGGEST_LIMITS.maxDescriptionLength)
+      .refine((d) => cleanDescription(d) === d, { error: 'receiptDescription must be single-line, trimmed text.' }),
+    ...ownerFields,
+  })
+  .strict()
+
+/** PATCH /api/products/identity/:itemNumber: new values for an owner-confirmed record. */
+export const updateIdentityRequestSchema = z.object(ownerFields).strict()
+
+export type ConfirmIdentityRequest = z.infer<typeof confirmIdentityRequestSchema>
+export type UpdateIdentityRequest = z.infer<typeof updateIdentityRequestSchema>
 
 /**
  * Our own resolved product record for a Costco item number (local catalog).
@@ -60,7 +110,7 @@ export type ProductIdentity = {
   /** Our confidence, from the evidence class only (never raised by AI). */
   confidence: number
   basis: ResolutionBasis
-  /** 'web-search' or 'web-search+ai'. */
+  /** 'web-search', 'web-search+ai', or 'owner' (owner-confirmed). */
   method: string
   resolvedAt: string
 }
@@ -98,7 +148,7 @@ export const productIdentitySchema = z.object({
   brand: text,
   productType: text,
   confidence: z.number().min(0).max(1),
-  basis: z.enum(['costco.com', 'costco-specialist', 'corroborated']),
+  basis: z.enum(['costco.com', 'costco-specialist', 'corroborated', 'owner-confirmed']),
   method: z.string(),
   resolvedAt: z.string(),
 })
@@ -127,13 +177,16 @@ export const identifyResponseSchema = z.object({
 
 export const identitiesResponseSchema = z.object({ identities: z.array(productIdentitySchema) })
 
+export const identityResponseSchema = z.object({ identity: productIdentitySchema })
+
 /** itemNumber → identity, as passed to the analytics engine. */
 export type ProductIdentities = Readonly<Record<string, ProductIdentity>>
 
 /**
  * Whether a local identity may feed the deterministic rules and the AI
  * prompt: resolved from Costco's own page, a Costco-specialist product page for
- * that item number, or 2+ agreeing independent sources.
+ * that item number, 2+ agreeing independent sources, or the owner's own
+ * confirmation.
  * (Provisional evidence never becomes a local identity in the first place.)
  */
 export function isUsableIdentity(identity: ProductIdentity | undefined): identity is ProductIdentity {
@@ -164,6 +217,8 @@ export function resolutionBasisLabel(basis: ResolutionBasis): string {
       return "a Costco-specialist product page (Warehouse Runner) for this item number"
     case 'corroborated':
       return 'two independent sources that agree on this item number'
+    case 'owner-confirmed':
+      return 'your own confirmation'
   }
 }
 
@@ -176,5 +231,7 @@ export function resolutionBasisShortLabel(basis: ResolutionBasis): string {
       return 'Costco-specialist page'
     case 'corroborated':
       return 'two independent sources'
+    case 'owner-confirmed':
+      return 'Owner confirmed'
   }
 }

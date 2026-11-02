@@ -52,13 +52,13 @@ On every dashboard load, the resolved catalog is fetched once with the dataset (
 | `status` | `resolved` (permanent, never re-searched) or `unresolved` (retried after `retry_after`) |
 | `receipt_description` | The receipt text we looked up. This is our own data |
 | `canonical_name`, `brand`, `product_type` | Our canonical product record (resolved rows only) |
-| `confidence` | Our confidence, from the evidence class only (0.9 Costco.com, 0.85 Costco-specialist, 0.8 corroborated) |
-| `resolution_basis` | Why we accepted it: `costco.com`, `costco-specialist` or `corroborated` (our classification, not search content) |
+| `confidence` | Our confidence, from the evidence class only (0.9 Costco.com, 0.85 Costco-specialist, 0.8 corroborated); 1 for owner-confirmed (the owner's assertion, not search certainty) |
+| `resolution_basis` | Why we accepted it: `costco.com`, `costco-specialist`, `corroborated` (our classification, not search content) or `owner-confirmed` (the owner said so) |
 | `last_outcome` | Unresolved rows: `provisional` (one ordinary source) or `not_found` |
-| `method` | `web-search` or `web-search+ai` (AI-normalized name) |
+| `method` | `web-search`, `web-search+ai` (AI-normalized name) or `owner` (owner-confirmed) |
 | `resolved_at`, `last_attempt_at`, `retry_after` | Timestamps |
 
-- `resolution_basis` also accepts `owner-confirmed`, reserved for the planned owner confirmation (below), so that feature needs no table rebuild. Nothing writes it yet, and such rows are not served.
+- `owner-confirmed` was already allowed by migration 0002's CHECK, so owner confirmation needed no new migration. (The migration's comment still calls it "reserved"; applied migrations are not edited.)
 - **Unresolved rows can't hold product details.** A database CHECK constraint enforces this: `canonical_name`, `brand`, `product_type` and `resolution_basis` must be NULL and `confidence` must be 0. Weak evidence therefore can never become a stored identity.
 - **No column can hold search-result content.** A test checks the column names.
 
@@ -176,8 +176,42 @@ See `CLAUDE.md` for the bounded exception.
 - **Nothing runs in the background.**
 - **Brave pricing:** $5 per 1,000 requests, with $5 of monthly free credit. Items resolved by the first query cost 1 query; items that stay unresolved cost 3. A few hundred unknown items therefore use a few hundred to roughly 1,000+ queries, once, so a large first review can exceed the monthly free credit; spread it over several clicks or months if needed (each click is at most 100 items).
 
-## Next: owner-confirmed identities (not built yet)
-Genuinely provisional items (one ordinary source) should eventually be confirmable by the owner: "Yes, this is the product". That would save our record with a separate basis such as `owner-confirmed`. Until then they stay unresolved and are retried after 30 days.
+## Owner-confirmed identities
+For an item number search could not resolve (provisional or not found), the owner can state what the product is.
+
+**Where:**
+- **Item drawer** (Items → search by item number or description → open the item): any item without a resolved catalog record shows **Confirm identity**. Opening or saving the form makes no search and no AI request; only the confirm request is sent.
+- **Categories → AI category suggestions:** review rows without a catalog record show the same action.
+
+Both open the same small form: product name (required), brand and product type (optional). The name is prefilled only from a possible match already shown in this session; otherwise it starts empty. Nothing is saved until the owner clicks **Save to my catalog**.
+
+**What is saved** (`server/products/ownerIdentity.ts`):
+- the owner's name, brand and type, plus our receipt description;
+- `status = 'resolved'`, `resolution_basis = 'owner-confirmed'`, `method = 'owner'`, `confidence = 1`.
+
+Confidence 1 means "the owner asserted it", not search certainty. The basis says so, and the dashboard shows **Owner confirmed** instead of a percentage.
+
+**Effect:**
+- the item number is never searched again;
+- the record is served by `GET /api/products/identities` and used by the rules and the AI prompt like any resolved identity;
+- the dashboard applies it immediately, with no reload. The panel reports whether the rules now categorize the item.
+
+**Edit / remove:** the item drawer shows **Edit identity** and **Remove identity** for owner-confirmed records only.
+- Remove deletes the catalog row, so a later click may look the item up again.
+- Receipts, purchases and category overrides are not touched.
+- Records resolved automatically (Costco.com, Costco-specialist, corroborated) cannot be replaced, edited or removed. The API answers 409.
+
+**API** (owner-only, same-origin, strict schemas, a best-effort limit of 60 changes per 10 minutes per isolate):
+
+| Request | Body | Result |
+|---|---|---|
+| `POST /api/products/confirm` | `{ itemNumber, receiptDescription, canonicalName, brand \| null, productType \| null }` | `{ identity }`. 409 `already_resolved` / `already_confirmed` |
+| `PATCH /api/products/identity/:itemNumber` | `{ canonicalName, brand \| null, productType \| null }` | `{ identity }`. 404, or 409 `not_owner_confirmed` |
+| `DELETE /api/products/identity/:itemNumber` | — | `{ removed }`. 404, or 409 `not_owner_confirmed` |
+
+**Validation:**
+- Any other field is rejected with 400: URLs, snippets, images, prices, dates, warehouse, receipt/order IDs, provider data, confidence or basis.
+- Text must be single-line, trimmed and bounded (name ≤ 120, brand and type ≤ 60), and must not be a web address.
 
 ## Next: photo-based return matching (design, not built yet)
 

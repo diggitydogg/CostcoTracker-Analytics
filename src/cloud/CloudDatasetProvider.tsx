@@ -65,9 +65,18 @@ export function CloudDatasetProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, identities: { ...s.identities, ...Object.fromEntries(found.map((f) => [f.itemNumber, f])) } }))
   }, [])
 
+  const removeIdentity = useCallback((itemNumber: string) => {
+    setState((s) => {
+      if (!(itemNumber in s.identities)) return s
+      const rest = { ...s.identities }
+      delete rest[itemNumber]
+      return { ...s, identities: rest }
+    })
+  }, [])
+
   const value = useMemo(
-    () => ({ ...state, ensureLoaded, reload: fetchNow, markStale, noteChangeSeq, addIdentities }),
-    [state, ensureLoaded, fetchNow, markStale, noteChangeSeq, addIdentities],
+    () => ({ ...state, ensureLoaded, reload: fetchNow, markStale, noteChangeSeq, addIdentities, removeIdentity }),
+    [state, ensureLoaded, fetchNow, markStale, noteChangeSeq, addIdentities, removeIdentity],
   )
   return <CloudDatasetContext.Provider value={value}>{children}</CloudDatasetContext.Provider>
 }

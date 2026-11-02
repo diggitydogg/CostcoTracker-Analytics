@@ -30,8 +30,15 @@ import {
 import type { SqlDatabase } from './db'
 import { exportMeta, exportPage } from './exportData'
 import { createRateLimiter, defaultSuggestionLimiter, suggestCategories, type AiBinding } from './ai/categorySuggest'
-import { IDENTIFY_LIMITS, identifyRequestSchema } from '../src/analytics/products/identityProtocol'
-import { IDENTIFY_RATE_LIMIT, searchFromEnv } from './products/config'
+import {
+  confirmIdentityRequestSchema,
+  IDENTIFY_LIMITS,
+  identifyRequestSchema,
+  OWNER_IDENTITY_LIMITS,
+  updateIdentityRequestSchema,
+} from '../src/analytics/products/identityProtocol'
+import { CATALOG_WRITE_RATE_LIMIT, IDENTIFY_RATE_LIMIT, searchFromEnv } from './products/config'
+import { confirmOwnerIdentity, removeOwnerIdentity, updateOwnerIdentity } from './products/ownerIdentity'
 import { identitiesFor, identifyItems, listIdentities } from './products/identify'
 import type { WebSearch } from './products/search'
 import { SUGGEST_LIMITS, suggestRequestSchema } from '../src/analytics/categories/suggestProtocol'
@@ -55,11 +62,14 @@ export type AppDeps = {
   aiLimiter?: { check(now: Date): void }
   /** Limits product identification requests; defaults to one shared per isolate. */
   identifyLimiter?: { check(now: Date): void }
+  /** Limits owner catalog edits (confirm / edit / remove); defaults to one shared per isolate. */
+  catalogLimiter?: { check(now: Date): void }
   /** Web search provider; defaults to the one configured by SEARCH_API_KEY (tests inject a fake). */
   search?: WebSearch | null
 }
 
-const defaultIdentifyLimiter = createRateLimiter(IDENTIFY_RATE_LIMIT)
+const defaultIdentifyLimiter = createRateLimiter(IDENTIFY_RATE_LIMIT, 'Too many product lookup requests. Wait a few minutes and try again.')
+const defaultCatalogLimiter = createRateLimiter(CATALOG_WRITE_RATE_LIMIT, 'Too many catalog changes. Wait a few minutes and try again.')
 
 const SMALL_BODY = 4 * 1024
 export const SYNC_REQUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -75,6 +85,7 @@ type Ctx = {
   now: Date
   aiLimiter: { check(now: Date): void }
   identifyLimiter: { check(now: Date): void }
+  catalogLimiter: { check(now: Date): void }
   search: WebSearch | null
 }
 type Route = { method: string; pattern: RegExp; access: Access; handle: (ctx: Ctx) => Promise<Response> }
@@ -396,6 +407,37 @@ const routes: Route[] = [
     access: 'owner',
     handle: async ({ db }) => json({ identities: await listIdentities(db) }),
   },
+  // Owner-confirmed identities: the owner states what an unresolved item is. Only these can be edited or removed.
+  {
+    method: 'POST',
+    pattern: /^\/api\/products\/confirm$/,
+    access: 'owner',
+    handle: async ({ request, db, now, catalogLimiter }) => {
+      const body = parseWith(confirmIdentityRequestSchema, await readJson(request, OWNER_IDENTITY_LIMITS.maxRequestBytes))
+      catalogLimiter.check(now)
+      return json({ identity: await confirmOwnerIdentity(db, body, now) })
+    },
+  },
+  {
+    method: 'PATCH',
+    pattern: /^\/api\/products\/identity\/([A-Za-z0-9][A-Za-z0-9._-]{0,39})$/,
+    access: 'owner',
+    handle: async ({ request, db, now, params, catalogLimiter }) => {
+      const body = parseWith(updateIdentityRequestSchema, await readJson(request, OWNER_IDENTITY_LIMITS.maxRequestBytes))
+      catalogLimiter.check(now)
+      return json({ identity: await updateOwnerIdentity(db, params[0]!, body, now) })
+    },
+  },
+  {
+    method: 'DELETE',
+    pattern: /^\/api\/products\/identity\/([A-Za-z0-9][A-Za-z0-9._-]{0,39})$/,
+    access: 'owner',
+    handle: async ({ db, now, params, catalogLimiter }) => {
+      catalogLimiter.check(now)
+      await removeOwnerIdentity(db, params[0]!)
+      return json({ removed: params[0]! })
+    },
+  },
 
   // ── Export (owner) ────────────────────────────────────────────────────────
   {
@@ -453,6 +495,7 @@ export function createApp(deps: AppDeps): (request: Request) => Promise<Response
         now,
         aiLimiter: deps.aiLimiter ?? defaultSuggestionLimiter,
         identifyLimiter: deps.identifyLimiter ?? defaultIdentifyLimiter,
+        catalogLimiter: deps.catalogLimiter ?? defaultCatalogLimiter,
         search: deps.search !== undefined ? deps.search : searchFromEnv(deps.env),
       })
     } catch (error) {
