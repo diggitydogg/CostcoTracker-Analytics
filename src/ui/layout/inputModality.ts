@@ -10,15 +10,20 @@ import { useEffect } from 'react'
 export type InputModality = 'keyboard' | 'pointer'
 
 let last: InputModality = 'pointer'
+let lastPointerTarget: Element | null = null
 let users = 0
 const onKey = (e: KeyboardEvent) => {
   if (!e.metaKey && !e.ctrlKey && !e.altKey) last = 'keyboard'
 }
-const onPointer = () => {
+const onPointer = (e: PointerEvent) => {
   last = 'pointer'
+  lastPointerTarget = e.target instanceof Element ? e.target : null
 }
 
 export const lastInputModality = (): InputModality => last
+
+/** The element the most recent pointer interaction started on (Safari does not focus tapped buttons, so focus can't tell). */
+export const lastPointerDownTarget = (): Element | null => (lastPointerTarget?.isConnected ? lastPointerTarget : null)
 
 /** Tracks input modality while any component using it is mounted (capture phase, before handlers run). */
 export function useInputModalityTracking(): void {
@@ -32,6 +37,7 @@ export function useInputModalityTracking(): void {
         document.removeEventListener('keydown', onKey, true)
         document.removeEventListener('pointerdown', onPointer, true)
         last = 'pointer'
+        lastPointerTarget = null
       }
     }
   }, [])

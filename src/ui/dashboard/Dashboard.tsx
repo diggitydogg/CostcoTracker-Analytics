@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { buildAnalyticsSnapshot, type DatasetSourceInfo } from '../../analytics'
 import type { AnalyticsExportV1 } from '../../domain/export/v1'
 import { createOverridesStore, type OverridesStore } from '../../persistence/overridesStore'
@@ -6,7 +6,8 @@ import { DashboardContext, type CatalogEditor, type DashboardContextValue, type 
 import { DrillDrawer } from './DrillDrawer'
 import { canSplit } from '../layout/tokens'
 import { useContainerWidth } from '../layout/useContainerWidth'
-import { useInputModalityTracking } from '../layout/inputModality'
+import { lastPointerDownTarget, useInputModalityTracking } from '../layout/inputModality'
+import { useScrollAnchor } from '../layout/scrollAnchor'
 import { count, date, todayIso } from './format'
 import { CategoriesSection } from './sections/CategoriesSection'
 import { InflationSection } from './sections/InflationSection'
@@ -103,10 +104,26 @@ export function Dashboard({
   // The control that opened the current detail (the selected row), updated on every selection, so
   // closing returns to where the person is now, not to the row that first opened the detail.
   const opener = useRef<HTMLElement | null>(null)
-  const show = useCallback((d: Drill) => {
-    opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null
-    setStack([d])
-  }, [])
+  // Opening or closing a docked pane resizes the primary column, which rewraps its content. Keep the
+  // row the person tapped (or the selected row) exactly where it was on screen across that one change.
+  const master = useRef<HTMLDivElement>(null)
+  const willResizeMaster = useRef<(opening: boolean) => boolean>(() => false)
+  const anchorScroll = useScrollAnchor()
+  // What the current detail was opened from (the tapped control), as a scroll anchor for closing.
+  const openedFrom = useRef<Element | null>(null)
+  const show = useCallback(
+    (d: Drill) => {
+      opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null
+      openedFrom.current = lastPointerDownTarget() ?? opener.current
+      if (willResizeMaster.current(true)) anchorScroll(master.current, openedFrom.current)
+      setStack([d])
+    },
+    [anchorScroll],
+  )
+  const close = useCallback(() => {
+    if (willResizeMaster.current(false)) anchorScroll(master.current, master.current?.querySelector('[aria-current="true"]'), openedFrom.current)
+    setStack([])
+  }, [anchorScroll])
   const getOpener = useCallback(() => (opener.current?.isConnected ? opener.current : null), [])
   useInputModalityTracking()
   const push = useCallback((d: Drill) => setStack((st) => [...st, d]), [])
@@ -115,6 +132,10 @@ export function Dashboard({
   // with room for two legible panes the detail docks beside the dashboard; otherwise it is a sheet.
   const [measure, width] = useContainerWidth<HTMLDivElement>()
   const split = canSplit(width) && selected !== null
+  // Whether opening (nothing shown yet) or closing (something shown) toggles the split at this width.
+  useLayoutEffect(() => {
+    willResizeMaster.current = (opening) => canSplit(width) && (opening ? selected === null : selected !== null)
+  }, [width, selected])
   const ctx = useMemo<DashboardContextValue>(
     () => ({ s, lookups, open: show, selected, overrides, today, ai, catalog: catalog ?? null }),
     [s, lookups, show, selected, overrides, today, ai, catalog],
@@ -133,7 +154,7 @@ export function Dashboard({
         data-layout={split ? 'split' : 'single'}
         className={split ? 'grid grid-cols-[minmax(0,1fr)_var(--detail-pane-width)] items-start gap-4' : ''}
       >
-      <div data-testid="dashboard" className="@container min-w-0 space-y-4">
+      <div ref={master} data-testid="dashboard" className="@container min-w-0 space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-tight text-slate-900">Your Costco spending</h2>
@@ -186,7 +207,7 @@ export function Dashboard({
             drill={selected}
             canGoBack={stack.length > 1}
             onBack={() => setStack((st) => st.slice(0, -1))}
-            onClose={() => setStack([])}
+            onClose={close}
             presentation={split ? 'pane' : 'sheet'}
             getOpener={getOpener}
           />

@@ -100,6 +100,27 @@ The opener is recorded on every selection, not once when the detail first mounts
 
 **Found on hardware:** on an iPhone Duo, selecting several rows and then closing the pane made the list jump. Every selection focused the pane's Close button, and closing returned focus to the first row. Reproduced in Chromium: closing jumped from y=1796 to y=541. After the fix the page stays at y=1796 through select, select, close, keyboard open and Escape.
 
+**The list stays still when the pane opens or closes.** At split-capable widths, opening a detail narrows the primary column, and closing widens it again. The content above the row the person tapped rewraps to a different height. On a real iPhone Duo this made the list jump, even after the focus fix. Safari doesn't keep a scroll anchor here, and Chromium's anchoring can pick a different node.
+
+Two fixes were considered:
+- **A stable split shell:** always reserving the secondary column at split widths, with an empty state. It would permanently take about 38% of the width from every tab, including Overview and the price-index charts on a Mac or in landscape. Rejected.
+- **Scoped scroll anchoring (chosen),** in `src/ui/layout/scrollAnchor.ts`:
+  - **When:** only for an open or close that toggles the split.
+  - **Anchor:** the element the detail was opened from (the tapped row or chart button), or the selected row on close, or else the element at the top of the visible list.
+  - **How:** the anchor's on-screen position is recorded first. After the commit, in a layout effect before paint, the document's scrolling element is scrolled by exactly how far the anchor moved.
+  - **What it doesn't do:** use timers, change selections within an open split (the column width doesn't change), touch compact sheets, or alter the detail pane's own scroll reset.
+
+The dashboard region's measured width doesn't change when the pane opens. Only the inner column does. This test opened row 25, selected rows 27, 23 and 29, then closed, in Chromium with scroll anchoring on and off (off behaves like Safari):
+
+| Viewport | Primary column width | Row on screen: before fix (open / close) | After fix (open / select ×3 / close) |
+|---|---|---|---|
+| 1180×820 | 1121 → 679 → 1121px | +89px / −89px | 0 / 0 / 0 |
+| 1440×900 | 1376 → 837 → 1376px | +36px / −36px | 0 / 0 / 0 |
+| 1024×768 | 973 → 587 → 973px | — | 0 / 0 / 0 |
+| 880×700 | 836 → 468 → 836px | — | 0 / 0 / 0 |
+
+After the fix, scrollY changes by exactly the reflow. For example, at 1180 it goes 1442 → 1531 on open, stays 1531 through the selections, and returns to 1442 on close, while the row stays at the same screen position. Opening from an Overview chart and closing again was also stable, including after the charts re-measured.
+
 **Same element tree in both forms:** the sheet and the pane render the same tree, and only classes and ARIA roles change. A resize, rotation or fold therefore never remounts the detail or the dashboard. Things that survive:
 - the selected item and the drill-down stack (Back);
 - the active tab;

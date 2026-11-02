@@ -206,6 +206,81 @@ describe('adaptive layout: focus never scrolls the page', () => {
   })
 })
 
+describe('adaptive layout: opening and closing the docked pane keeps the list still', () => {
+  /**
+   * jsdom has no layout, so the reflow is modeled: rows sit 50px apart below 1200px of content, and in the
+   * split layout the (narrower) primary column rewraps the content above them 89px taller — what a real
+   * browser measured at 1180px. Without compensation the tapped row would move down 89px on open and back
+   * up on close; the real-browser version of this check is documented in docs/ADAPTIVE_LAYOUT.md.
+   */
+  function modelReflow() {
+    const root = document.documentElement
+    let scrollTop = 1000
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 800 })
+    Object.defineProperty(root, 'scrollTop', { configurable: true, get: () => scrollTop, set: (v: number) => void (scrollTop = v) })
+    const rows = itemButtons().map((b) => b.closest('tr')!)
+    const split = () => screen.getByTestId('dashboard-layout').dataset.layout === 'split'
+    space!.setGeometry((el) => {
+      const i = rows.indexOf(el.closest('tr')!)
+      if (i >= 0) {
+        const top = 1200 + i * 50 + (split() ? 89 : 0) - scrollTop
+        return { top, bottom: top + 40, y: top }
+      }
+      if (el.dataset.testid === 'dashboard') return { top: 100 - scrollTop, bottom: 6000 - scrollTop }
+      return null
+    })
+    return {
+      scrollTop: () => scrollTop,
+      rowTop: (i: number) => Math.round(rows[i]!.getBoundingClientRect().top),
+      restore: () => {
+        delete (root as unknown as Record<string, unknown>).clientHeight
+        delete (root as unknown as Record<string, unknown>).scrollTop
+      },
+    }
+  }
+
+  it('the tapped row, other selections and Close all keep the same position on screen', async () => {
+    const { user } = renderAt(WIDE)
+    await tab(user, 'Items')
+    const page = modelReflow()
+    try {
+      const before = page.rowTop(5)
+      await user.click(itemButtons()[5]!)
+      expect(screen.getByTestId('dashboard-layout')).toHaveAttribute('data-layout', 'split')
+      expect(page.rowTop(5)).toBe(before) // the row stayed put…
+      expect(page.scrollTop()).toBe(1089) // …because the page scrolled by exactly the reflow
+      // Selecting other rows does not resize the list, so nothing moves.
+      const second = page.rowTop(7)
+      await user.click(itemButtons()[7]!)
+      await user.click(itemButtons()[3]!)
+      expect(page.rowTop(7)).toBe(second)
+      expect(page.scrollTop()).toBe(1089)
+      // Closing restores full width; the selected row stays where it is on screen.
+      const selectedTop = page.rowTop(3)
+      await user.click(within(detail()).getByRole('button', { name: 'Close' }))
+      expect(screen.getByTestId('dashboard-layout')).toHaveAttribute('data-layout', 'single')
+      expect(page.rowTop(3)).toBe(selectedTop)
+      expect(page.scrollTop()).toBe(1000)
+    } finally {
+      page.restore()
+    }
+  })
+
+  it('does not touch the scroll position where the detail is a modal sheet', async () => {
+    const { user } = renderAt(COMPACT_PHONE)
+    await tab(user, 'Items')
+    const page = modelReflow()
+    try {
+      await user.click(itemButtons()[5]!)
+      expect(detail()).toHaveAttribute('data-presentation', 'sheet')
+      await user.click(within(detail()).getByRole('button', { name: 'Close' }))
+      expect(page.scrollTop()).toBe(1000)
+    } finally {
+      page.restore()
+    }
+  })
+})
+
 describe('adaptive layout: resizing and rotation keep state', () => {
   it('keeps the selected item, search and filters through compact ↔ wide changes', async () => {
     const { user, resize } = renderAt(WIDE)
