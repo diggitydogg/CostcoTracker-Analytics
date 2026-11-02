@@ -16,7 +16,8 @@ import { Dashboard } from './Dashboard'
  */
 const COMPACT_PHONE = 375 // a typical compact-width iPhone in portrait
 const NARROW = 320 // the narrowest supported width (CLAUDE.md)
-const REGULAR_NOT_SPLIT = 800 // regular width, but not room for two legible panes
+const REGULAR_NOT_SPLIT = 800 // regular width, but not room for two usable panes (e.g. a phone in landscape)
+const SPLIT_MIN = 832 // 52rem at the default text size: the smallest region that docks the detail
 const WIDE = 1180 // room for a list and a detail pane side by side
 
 const SOURCE = { source: 'local-file' as const }
@@ -58,6 +59,33 @@ describe('adaptive layout: compact width', () => {
     await tab(user, 'Items')
     await user.click(itemButtons()[0]!)
     expect(detail()).toHaveAttribute('data-presentation', 'sheet')
+  })
+})
+
+describe('adaptive layout: split threshold', () => {
+  const presentationAt = async (width: number) => {
+    const { user } = renderAt(width)
+    await tab(user, 'Items')
+    await user.click(itemButtons()[0]!)
+    return detail().getAttribute('data-presentation')
+  }
+
+  it('docks the detail from exactly the split width, and keeps the sheet just below it', async () => {
+    expect(await presentationAt(SPLIT_MIN - 1)).toBe('sheet')
+  })
+
+  it('docks at the split width', async () => {
+    expect(await presentationAt(SPLIT_MIN)).toBe('pane')
+  })
+
+  it('larger text pushes the same width back to a sheet when two readable panes no longer fit', async () => {
+    document.documentElement.style.fontSize = '200%'
+    try {
+      // 1180px is a pane at the default text size, but at 200% the split needs 104rem = 1664px.
+      expect(await presentationAt(WIDE)).toBe('sheet')
+    } finally {
+      document.documentElement.style.fontSize = ''
+    }
   })
 })
 

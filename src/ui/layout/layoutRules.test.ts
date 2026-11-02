@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { pageFooter, pageHeader, pageMain } from './shell'
-import { LAYOUT_REM } from './tokens'
+import { LAYOUT_REM, SPLIT_PARTS } from './tokens'
 
 
 const SRC = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
@@ -33,6 +33,16 @@ describe('adaptive layout: system rules', () => {
     for (const { path, text } of files.filter((f) => f.path.endsWith('.tsx'))) {
       expect(text, path).not.toMatch(/(^|[\s"'`])(sm|md|lg|xl|2xl|min-\[\d+px\]|max-\[\d+px\]):/)
     }
+  })
+
+  it('derives the split threshold from two usable panes, matching the docked pane minimum', () => {
+    expect(LAYOUT_REM.split).toBe(SPLIT_PARTS.detailPaneMin + SPLIT_PARTS.gap + SPLIT_PARTS.primaryMin)
+    const css = readFileSync(join(SRC, 'index.css'), 'utf8')
+    expect(css).toContain(`--detail-pane-width: clamp(${SPLIT_PARTS.detailPaneMin}rem,`)
+    // The primary column is never narrower than the widest compact-width iPhone column (440pt).
+    expect(SPLIT_PARTS.primaryMin * 16).toBeGreaterThan(440)
+    // A split is only ever offered in the regular size class (Apple: split views need a regular environment).
+    expect(LAYOUT_REM.split).toBeGreaterThan(LAYOUT_REM.regular)
   })
 
   it('keeps the CSS tokens and the JS tokens identical', () => {

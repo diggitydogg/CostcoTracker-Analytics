@@ -25,8 +25,14 @@
   --container-wide: 60rem;
   /* Management pages (forms, lists) stay bounded instead of stretching. */
   --container-content: 64rem;
-  /* Enough room for a primary list and a detail pane side by side (split view). */
-  --container-split: 64rem;
+  /*
+   * Enough room for a primary list and a detail pane side by side (split view): the smallest
+   * width where both stay genuinely usable = detail pane minimum (22rem, see --detail-pane-width)
+   * + gap (1rem) + primary minimum (29rem: wider than any compact-width iPhone column, so the
+   * dashboard never has less room than it has on a phone). Tuned on real hardware: 64rem kept an
+   * unfolded large display in landscape on the sheet.
+   */
+  --container-split: 52rem;
   --container-spacious: 76rem;
   --container-panoramic: 92rem;
   /* The page never grows past this, so very large windows keep content centered. */

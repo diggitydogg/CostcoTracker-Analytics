@@ -14,13 +14,22 @@ export const LAYOUT_REM = {
   sheet: 48,
   wide: 60,
   content: 64,
-  split: 64,
+  /** = SPLIT_PARTS: detail pane minimum + gap + primary minimum. */
+  split: 52,
   spacious: 76,
   panoramic: 92,
   page: 100,
 } as const
 
 export type LayoutToken = keyof typeof LAYOUT_REM
+
+/**
+ * How the split threshold is derived (rem): the docked detail pane never gets
+ * narrower than 22rem (--detail-pane-width), the gap is 1rem, and the primary
+ * column must keep at least 29rem (464px), more than the widest compact-width
+ * iPhone column, so the dashboard is never more cramped than on a phone.
+ */
+export const SPLIT_PARTS = { detailPaneMin: 22, gap: 1, primaryMin: 29 } as const
 
 /** The CSS reference pixel per rem used for JS comparisons (the root size never changes in layout code). */
 const remPx = (): number => {
